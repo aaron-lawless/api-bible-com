@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Bible Search</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+
+    <!-- Main chat (no sidebar) -->
+    <main class="main">
+      <!-- Top bar -->
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:0.75rem 1.25rem; border-bottom:1px solid var(--border); flex-shrink:0;">
+        <span style="font-size:1rem; font-weight:700;">📖 AI Bible Search</span>
+        <a href="/admin/login" class="btn btn-ghost btn-sm">Admin</a>
+      </div>
+
+      <div class="chat-area" id="chat-area">
+        <div class="chat-empty" id="empty-state">
+          <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 6.25278V19.2528M12 6.25278C10.8321 5.47686 9.24649 5 7.5 5C5.75351 5 4.16789 5.47686 3 6.25278V19.2528C4.16789 18.4769 5.75351 18 7.5 18C9.24649 18 10.8321 18.4769 12 19.2528M12 6.25278C13.1679 5.47686 14.7535 5 16.5 5C18.2465 5 19.8321 5.47686 21 6.25278V19.2528C19.8321 18.4769 18.2465 18 16.5 18C14.7535 18 13.1679 18.4769 12 19.2528"/></svg>
+          <h2>AI Bible Search</h2>
+          <p>Ask any question. The AI will search the uploaded documents and give you a sourced answer.</p>
+        </div>
+      </div>
+
+      <!-- Input bar -->
+      <div class="chat-input-bar">
+        <div class="chat-input-inner">
+          <textarea
+            id="chat-input"
+            rows="1"
+            placeholder="Ask anything about the Bible…"
+          ></textarea>
+          <button class="send-btn" id="send-btn" disabled title="Send">
+            <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+          </button>
+        </div>
+        <p class="chat-hint">AI can make mistakes. Verify important information.</p>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const chatArea  = document.getElementById('chat-area');
+    const emptyState = document.getElementById('empty-state');
+    const input     = document.getElementById('chat-input');
+    const sendBtn   = document.getElementById('send-btn');
+
+    function escapeHtml(s) {
+      if (s == null) return '';
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // Auto-resize textarea
+    input.addEventListener('input', () => {
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 180) + 'px';
+      sendBtn.disabled = !input.value.trim();
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    });
+
+    sendBtn.addEventListener('click', sendMessage);
+
+    function appendMessage(role, html) {
+      if (emptyState) emptyState.style.display = 'none';
+
+      const isUser = role === 'user';
+      const msg = document.createElement('div');
+      msg.className = `chat-message ${isUser ? 'user' : 'ai'}`;
+      msg.innerHTML = `
+        <div class="avatar ${isUser ? 'avatar-user' : 'avatar-ai'}">${isUser ? 'You' : 'AI'}</div>
+        <div class="bubble ${isUser ? 'bubble-user' : 'bubble-ai'}">${html}</div>
+      `;
+      chatArea.appendChild(msg);
+      chatArea.scrollTop = chatArea.scrollHeight;
+      return msg.querySelector('.bubble');
+    }
+
+    function appendTyping() {
+      const bubble = appendMessage('ai', '<div class="typing-dots"><span></span><span></span><span></span></div>');
+      return bubble;
+    }
+
+    async function sendMessage() {
+      const query = input.value.trim();
+      if (!query) return;
+
+      appendMessage('user', escapeHtml(query));
+      input.value = '';
+      input.style.height = 'auto';
+      sendBtn.disabled = true;
+
+      const typingBubble = appendTyping();
+
+      try {
+        const resp = await fetch('/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query, top_k: 10 }),
+        });
+        const data = await resp.json();
+
+        if (resp.ok) {
+          let html = `<div class="md-body">${marked.parse(data.answer || '')}</div>`;
+
+          if (data.sources && data.sources.length > 0) {
+            html += `<div class="sources">
+              <div class="sources-title">Sources</div>
+              <div>`;
+            for (const src of data.sources) {
+              const label = escapeHtml(src.title || 'Unknown') + (src.author ? ' · ' + escapeHtml(src.author) : '') + ' #' + src.chunk_index;
+              html += `<span class="source-chip" title="${escapeHtml(src.content.substring(0,200))}">
+                <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                ${label}
+              </span>`;
+            }
+            html += `</div></div>`;
+          }
+          typingBubble.innerHTML = html;
+        } else {
+          typingBubble.innerHTML = `<span style="color:#fca5a5">Error: ${escapeHtml(data.error)}</span>`;
+        }
+      } catch (err) {
+        typingBubble.innerHTML = `<span style="color:#fca5a5">Network error: ${escapeHtml(err.message)}</span>`;
+      }
+
+      chatArea.scrollTop = chatArea.scrollHeight;
+    }
+  </script>
+</body>
+</html>
