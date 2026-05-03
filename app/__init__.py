@@ -25,6 +25,9 @@ async def lifespan(app: FastAPI):
     from app.database import verify_database_connection
 
     verify_database_connection()
+    print("  API docs:  http://localhost:8000/docs")
+    print("  Search UI: http://localhost:8000/ui")
+    print()
     yield
 
 

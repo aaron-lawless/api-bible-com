@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.models import QueryCache
 from app.services.openai_client import create_openai_client
 from app.services import chunk_store
+from app.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -17,9 +18,6 @@ logger = logging.getLogger(__name__)
 nlp = spacy.load("en_core_web_sm")
 
 #TODO: we will want to add configuration to point pastors if too deep
-#TODO: we will want to query our previous answers to avoid extra API calls if the same question is asked multiple times
-COMPLETION_MODEL = "gpt-4o"
-EMBEDDING_MODEL = "text-embedding-3-small"
 SYSTEM_PROMPT = """You are a Christian theological assistant helping users understand the Bible through the provided sources.
 
 Answer questions using ONLY the document excerpts provided. Do not draw on outside knowledge.
@@ -115,7 +113,7 @@ def answer_question(
 
         # creating the embedding for the question to perform vector search
         embed_response = client.embeddings.create(
-            model=EMBEDDING_MODEL,
+            model=Config.EMBEDDING_MODEL,
             input=[normalized_query],
         )
 
@@ -188,7 +186,7 @@ def answer_question(
         logger.info("Generating answer for query: %s", query[:80])
 
         completion = client.chat.completions.create(
-            model=COMPLETION_MODEL,
+            model=Config.COMPLETION_MODEL,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_message},

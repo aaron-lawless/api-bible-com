@@ -2,48 +2,48 @@ from unittest.mock import patch
 
 import pytest
 
-from app.config import _looks_like_railway_internal_url, _resolve_database_uri
+from app.config import Mode, _resolve_mode, _resolve_database_uri
 
 
-def test_resolve_database_uri_prefers_local_override(monkeypatch):
-    monkeypatch.setenv("LOCAL_DATABASE_URL", "sqlite:///custom-dev.db")
-    monkeypatch.setenv(
-        "DATABASE_URL",
-        "postgresql://postgres:secret@postgres.railway.internal:5432/railway",
-    )
-
-    assert _resolve_database_uri() == "sqlite:///custom-dev.db"
+def test_resolve_mode_defaults_to_local(monkeypatch):
+    monkeypatch.delenv("MODE", raising=False)
+    assert _resolve_mode() == Mode.LOCAL
 
 
-def test_resolve_database_uri_falls_back_for_local_railway_internal(monkeypatch):
-    monkeypatch.delenv("LOCAL_DATABASE_URL", raising=False)
-    monkeypatch.delenv("RAILWAY_ENVIRONMENT", raising=False)
-    monkeypatch.delenv("RAILWAY_PROJECT_ID", raising=False)
-    monkeypatch.delenv("RAILWAY_SERVICE_ID", raising=False)
-    monkeypatch.setenv(
-        "DATABASE_URL",
-        "postgresql://postgres:secret@postgres.railway.internal:5432/railway",
-    )
-
-    assert _resolve_database_uri() == "sqlite:///aibible-dev.db"
+def test_resolve_mode_nprd(monkeypatch):
+    monkeypatch.setenv("MODE", "nprd")
+    assert _resolve_mode() == Mode.NPRD
 
 
-def test_resolve_database_uri_keeps_database_url_on_railway(monkeypatch):
-    database_url = "postgresql://postgres:secret@postgres.railway.internal:5432/railway"
-    monkeypatch.delenv("LOCAL_DATABASE_URL", raising=False)
-    monkeypatch.setenv("DATABASE_URL", database_url)
-    monkeypatch.setenv("RAILWAY_ENVIRONMENT", "production")
-
-    assert _resolve_database_uri() == database_url
+def test_resolve_mode_prd(monkeypatch):
+    monkeypatch.setenv("MODE", "prd")
+    assert _resolve_mode() == Mode.PRD
 
 
-def test_looks_like_railway_internal_url():
-    assert _looks_like_railway_internal_url(
-        "postgresql://postgres:secret@postgres.railway.internal:5432/railway"
-    )
-    assert not _looks_like_railway_internal_url(
-        "postgresql://user:pass@localhost:5432/aibible"
-    )
+def test_resolve_mode_invalid(monkeypatch):
+    monkeypatch.setenv("MODE", "staging")
+    with pytest.raises(ValueError, match="Invalid MODE"):
+        _resolve_mode()
+
+
+def test_resolve_database_uri_local_uses_sqlite():
+    assert _resolve_database_uri(Mode.LOCAL) == "sqlite:///aibible-dev.db"
+
+
+def test_resolve_database_uri_nprd_uses_database_url(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@host:5432/db")
+    assert _resolve_database_uri(Mode.NPRD) == "postgresql://user:pass@host:5432/db"
+
+
+def test_resolve_database_uri_prd_uses_database_url(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@host:5432/db")
+    assert _resolve_database_uri(Mode.PRD) == "postgresql://user:pass@host:5432/db"
+
+
+def test_resolve_database_uri_nprd_raises_without_database_url(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    with pytest.raises(ValueError, match="DATABASE_URL is required"):
+        _resolve_database_uri(Mode.NPRD)
 
 
 def test_verify_database_connection_raises_on_failure():
