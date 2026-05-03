@@ -25,7 +25,7 @@ search_router = APIRouter()
 def search_ui(request: Request):
     return _templates.TemplateResponse("index.html", {"request": request})
 
-
+# TODO: we will want to move this to a schemas.py if request models grow
 class SearchRequest(BaseModel):
     query: str
     top_k: int = 10

@@ -81,15 +81,15 @@ def ingest(
         db.add(doc)
         db.flush()
 
-        chunk_store.store_chunks(str(doc.id), chunks, embeddings, db)
+        chunk_store.store_chunks(str(doc.document_id), chunks, embeddings, db)
 
         db.commit()
 
         logger.info(
-            "Ingested document '%s' with %d chunks (id=%s)", title, len(chunks), doc.id
+            "Ingested document '%s' with %d chunks (id=%s)", title, len(chunks), doc.document_id
         )
         return {
-            "document_id": str(doc.id),
+            "document_id": str(doc.document_id),
             "chunk_count": len(chunks),
             "title": title,
         }

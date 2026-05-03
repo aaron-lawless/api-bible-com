@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, Uuid, Text, Date, DateTime, Integer, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Uuid, Text, Date, DateTime, Integer, ForeignKey, UniqueConstraint, Boolean, JSON
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
 
@@ -11,7 +11,7 @@ from app.database import Base
 class Document(Base):
     __tablename__ = "documents"
 
-    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    document_id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title = Column(Text, nullable=False)
     author = Column(Text)
     isbn = Column(Text)
@@ -30,7 +30,7 @@ class Document(Base):
 
     def to_dict(self):
         return {
-            "id": str(self.id),
+            "document_id": str(self.document_id),
             "title": self.title,
             "author": self.author,
             "isbn": self.isbn,
@@ -47,10 +47,10 @@ class Document(Base):
 class DocumentChunk(Base):
     __tablename__ = "document_chunks"
 
-    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    chunk_id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     document_id = Column(
         Uuid(as_uuid=True),
-        ForeignKey("documents.id", ondelete="CASCADE"),
+        ForeignKey("documents.document_id", ondelete="CASCADE"),
         nullable=False,
     )
     chunk_index = Column(Integer, nullable=False)
@@ -67,4 +67,22 @@ class DocumentChunk(Base):
     __table_args__ = (
         UniqueConstraint("document_id", "chunk_index", name="uq_document_chunk_index"),
     )
+
+
+class QueryCache(Base):
+    __tablename__ = "query_cache"
+
+    query_id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    question_raw = Column(Text, nullable=False)
+    question_normalized = Column(Text, nullable=False)
+    question_hash = Column(Text, nullable=False)
+    embedding = Column(Vector(1536))
+    response = Column(Text)
+    cache_hit = Column(Boolean, nullable=False)
+    cache_hit_type = Column(Text)
+    token_information = Column(JSON)
+    similarity_score = Column(Text)
+    session_id = Column(Text, nullable=False)
+    cache_source_id = Column(Uuid(as_uuid=True)) # This will reference other querycache rows
+    sources = Column(JSON)
 

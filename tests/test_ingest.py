@@ -59,7 +59,7 @@ def test_ingest_success(client, mock_db):
     doc_id = uuid.uuid4()
 
     mock_doc = MagicMock()
-    mock_doc.id = doc_id
+    mock_doc.document_id = doc_id
 
     with (
         patch("app.routes.ingest.extract_text", return_value="Sample document text"),
@@ -114,7 +114,7 @@ def test_ingest_openai_failure(client):
 def test_ingest_db_failure(client, mock_db):
     doc_id = uuid.uuid4()
     mock_doc = MagicMock()
-    mock_doc.id = doc_id
+    mock_doc.document_id = doc_id
     mock_db.flush.side_effect = Exception("DB connection lost")
 
     with (

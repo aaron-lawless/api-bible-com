@@ -72,7 +72,7 @@ def _search_chunks_pgvector(
     distance = DocumentChunk.embedding.cosine_distance(query_vector).label("distance")
     stmt = (
         select(DocumentChunk, Document, distance)
-        .join(Document, Document.id == DocumentChunk.document_id)
+        .join(Document, Document.document_id == DocumentChunk.document_id)
     )
 
     if document_ids:
@@ -103,7 +103,7 @@ def _search_chunks_sqlite(
     db: Session,
 ) -> list[ChunkSearchResult]:
     stmt = select(DocumentChunk, Document).join(
-        Document, Document.id == DocumentChunk.document_id
+        Document, Document.document_id == DocumentChunk.document_id
     )
     if document_ids:
         stmt = stmt.where(

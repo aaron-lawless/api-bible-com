@@ -18,3 +18,4 @@ httpx<0.28
 pgvector==0.3.6
 pytest==8.2.2
 railway==0.0.4
+spacy==3.8.14
