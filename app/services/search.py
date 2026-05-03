@@ -88,7 +88,11 @@ def answer_question(
 
         # Step 1: Exact match search for previously answered questions to avoid unnecessary API calls
 
-        stmt = select(QueryCache).where(QueryCache.question_hash == question_hash)
+        stmt = (
+            select(QueryCache)
+            .where(QueryCache.question_hash == question_hash, QueryCache.cache_hit == False)  # noqa: E712
+            .limit(1)
+        )
         row = db.execute(stmt).scalar_one_or_none()
         if row:
             logger.info("Cache hit for question: %s", query[:80])
@@ -171,6 +175,7 @@ def answer_question(
                         "document_id": doc_id,
                         "title": hit.title,
                         "author": hit.author,
+                        "source": hit.source
                     }
                 )
             context_parts.append(

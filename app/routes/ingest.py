@@ -33,6 +33,7 @@ def ingest(
     isbn: Optional[str] = Form(None),
     date_published: Optional[str] = Form(None),
     description: Optional[str] = Form(None),
+    source: Optional[str] = Form(None),
     db: Session = Depends(get_db),
 ):
     if file is None or not file.filename:
@@ -77,6 +78,7 @@ def ingest(
             isbn=isbn,
             date_published=parsed_date,
             description=description,
+            source=source,
         )
         db.add(doc)
         db.flush()

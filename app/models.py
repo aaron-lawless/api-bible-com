@@ -17,6 +17,7 @@ class Document(Base):
     isbn = Column(Text)
     date_published = Column(Date)
     description = Column(Text)
+    source = Column(Text)
     created_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -38,6 +39,7 @@ class Document(Base):
                 self.date_published.isoformat() if self.date_published else None
             ),
             "description": self.description,
+            "source": self.source,
             "created_at": (
                 self.created_at.isoformat() if self.created_at else None
             ),
@@ -85,4 +87,9 @@ class QueryCache(Base):
     session_id = Column(Text, nullable=False)
     cache_source_id = Column(Uuid(as_uuid=True)) # This will reference other querycache rows
     sources = Column(JSON)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
 
