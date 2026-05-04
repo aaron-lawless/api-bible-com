@@ -60,7 +60,11 @@ class SearchRequest(BaseModel):
 
 
 @search_router.post("/search")
-def search(body: SearchRequest, db: Session = Depends(get_db)):
+def search(request: Request, body: SearchRequest, db: Session = Depends(get_db)):
+    if "session_id" not in request.session:
+        request.session["session_id"] = str(uuid.uuid4())
+    session_id = request.session["session_id"]
+
     try:
         result = answer_question(
             query=body.query,
@@ -68,6 +72,7 @@ def search(body: SearchRequest, db: Session = Depends(get_db)):
             document_ids=body.document_ids,
             api_key=Config.OPENAI_API_KEY,
             db=db,
+            session_id=session_id,
         )
         logger.info("Search completed for query: %s", body.query[:80])
         return result
