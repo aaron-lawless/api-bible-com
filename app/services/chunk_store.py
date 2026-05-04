@@ -14,6 +14,7 @@ class ChunkSearchResult:
     document_id: str
     title: str
     author: str | None
+    source: str | None
     chunk_index: int
     content: str
     score: float
@@ -86,6 +87,7 @@ def _search_chunks_pgvector(
             document_id=str(chunk.document_id),
             title=document.title,
             author=document.author,
+            source=document.source,
             chunk_index=chunk.chunk_index,
             content=chunk.content,
             score=1 - float(distance_value),
@@ -129,6 +131,7 @@ def _search_chunks_sqlite(
             document_id=str(chunk.document_id),
             title=document.title,
             author=document.author,
+            source=document.source,
             chunk_index=chunk.chunk_index,
             content=chunk.content,
             score=1 - dist,

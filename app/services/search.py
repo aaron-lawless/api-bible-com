@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 nlp = spacy.load("en_core_web_sm")
 
 #TODO: we will want to add configuration to point pastors if too deep
+#TODO: we will want to shorting of answers to reduce token usage
 SYSTEM_PROMPT = """You are a Christian theological assistant helping users understand the Bible through the provided sources.
 
 Answer questions using ONLY the document excerpts provided. Do not draw on outside knowledge.
@@ -132,7 +133,8 @@ def answer_question(
             cached, distance = row
             similarity = 1 - float(distance)
             # TODO: we will want to have this as a configurable threshold
-            if similarity > 0.92:
+            print(f"Vector cache similarity: {similarity:.4f} for question: {query[:80]}")
+            if similarity > 0.85:
                 _insert_cache_row(
                     db=db,
                     question_raw=query,

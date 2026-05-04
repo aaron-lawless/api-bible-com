@@ -153,7 +153,7 @@ Each query (hit or miss) is recorded in `query_cache` with:
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-python run.py
+python server.py
 ```
 
 Set the following environment variables (or use a `.env` file):
