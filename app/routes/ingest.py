@@ -30,9 +30,7 @@ def ingest(
     file: Optional[UploadFile] = File(None),
     title: Optional[str] = Form(None),
     author: Optional[str] = Form(None),
-    isbn: Optional[str] = Form(None),
     date_published: Optional[str] = Form(None),
-    description: Optional[str] = Form(None),
     source: Optional[str] = Form(None),
     db: Session = Depends(get_db),
 ):
@@ -57,7 +55,7 @@ def ingest(
     chunks = chunk_text(text)
 
     try:
-        embeddings = embed_chunks(chunks, api_key=Config.OPENAI_API_KEY)
+        embeddings, token_count = embed_chunks(chunks, api_key=Config.OPENAI_API_KEY)
     except openai.OpenAIError as exc:
         logger.error("OpenAI embedding error: %s", exc)
         raise HTTPException(status_code=502, detail=f"OpenAI API error: {exc}")
@@ -75,10 +73,9 @@ def ingest(
         doc = Document(
             title=title,
             author=author,
-            isbn=isbn,
             date_published=parsed_date,
-            description=description,
             source=source,
+            token_count=token_count,
         )
         db.add(doc)
         db.flush()

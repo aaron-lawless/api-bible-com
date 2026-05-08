@@ -30,10 +30,10 @@ EMBEDDING_MODEL = "text-embedding-3-small"
     stop=stop_after_attempt(5),
     reraise=True,
 )
-def _embed_batch(client: openai.OpenAI, texts: list[str]) -> list[list[float]]:
+def _embed_batch(client: openai.OpenAI, texts: list[str]) -> tuple[list[list[float]], int]:
     try:
         response = client.embeddings.create(model=EMBEDDING_MODEL, input=texts)
-        return [item.embedding for item in response.data]
+        return [item.embedding for item in response.data], response.usage.total_tokens
     except Exception as exc:
         logger.error(
             "Embedding call failed: %s: %s",
@@ -44,10 +44,11 @@ def _embed_batch(client: openai.OpenAI, texts: list[str]) -> list[list[float]]:
         raise
 
 
-def embed_chunks(chunks: list[dict], api_key: str) -> list[list[float]]:
+def embed_chunks(chunks: list[dict], api_key: str) -> tuple[list[list[float]], int]:
     client = create_openai_client(api_key)
     texts = [chunk["content"] for chunk in chunks]
     embeddings = []
+    total_tokens = 0
 
     try:
         for i in range(0, len(texts), BATCH_SIZE):
@@ -55,9 +56,10 @@ def embed_chunks(chunks: list[dict], api_key: str) -> list[list[float]]:
             logger.info(
                 "Embedding batch %d–%d of %d chunks", i + 1, i + len(batch), len(texts)
             )
-            batch_embeddings = _embed_batch(client, batch)
+            batch_embeddings, batch_tokens = _embed_batch(client, batch)
             embeddings.extend(batch_embeddings)
+            total_tokens += batch_tokens
     finally:
         client.close()
 
-    return embeddings
+    return embeddings, total_tokens

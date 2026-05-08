@@ -14,10 +14,9 @@ class Document(Base):
     document_id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title = Column(Text, nullable=False)
     author = Column(Text)
-    isbn = Column(Text)
     date_published = Column(Date)
-    description = Column(Text)
     source = Column(Text)
+    token_count = Column(Integer, nullable=True)
     created_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -34,12 +33,11 @@ class Document(Base):
             "document_id": str(self.document_id),
             "title": self.title,
             "author": self.author,
-            "isbn": self.isbn,
             "date_published": (
                 self.date_published.isoformat() if self.date_published else None
             ),
-            "description": self.description,
             "source": self.source,
+            "token_count": self.token_count,
             "created_at": (
                 self.created_at.isoformat() if self.created_at else None
             ),
