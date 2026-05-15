@@ -85,6 +85,7 @@ class QueryCache(Base):
     session_id = Column(Text, nullable=False)
     cache_source_id = Column(Uuid(as_uuid=True)) # This will reference other querycache rows
     sources = Column(JSON)
+    verse_reference = Column(Text, nullable=True)  # Canonical form e.g. "romans 8:1-2", NULL for non-verse questions
     created_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

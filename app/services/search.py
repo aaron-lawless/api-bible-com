@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import re
 import uuid
 
 import openai
@@ -60,6 +61,50 @@ def normalize_question(text: str) -> str:
     return " ".join(tokens)
 
 
+# ---------------------------------------------------------------------------
+# Verse reference extraction & canonicalisation
+# ---------------------------------------------------------------------------
+# Capture groups for each pattern:
+#   (book) (chapter) : (verse_start) [- (verse_end)]
+#
+# Pattern A:  "Romans 8:1"  /  "Romans 8:1-3"  /  "Judges 8:1–6"
+_VERSE_COLON_RE = re.compile(
+    r"(?P<book>[1-3]?\s*[a-zA-Z]+)\s+(?P<ch>\d+):(?P<vs>\d+)(?:\s*[-–]\s*(?P<ve>\d+))?",
+    re.IGNORECASE,
+)
+# Pattern B:  "Romans 8 1-3"  /  "Romans 8 1–3"
+_VERSE_SPACE_DASH_RE = re.compile(
+    r"(?P<book>[1-3]?\s*[a-zA-Z]+)\s+(?P<ch>\d+)\s+(?P<vs>\d+)\s*[-–]\s*(?P<ve>\d+)",
+    re.IGNORECASE,
+)
+# Pattern C:  "Romans 8 1 to 3"
+_VERSE_SPACE_TO_RE = re.compile(
+    r"(?P<book>[1-3]?\s*[a-zA-Z]+)\s+(?P<ch>\d+)\s+(?P<vs>\d+)\s+to\s+(?P<ve>\d+)",
+    re.IGNORECASE,
+)
+
+
+def extract_verse_reference(text: str) -> str | None:
+    """Return a canonical verse reference string if one is found in *text*.
+
+    Canonical form: "<book> <chapter>:<verse_start>[-<verse_end>]"
+    All lowercase, e.g. "romans 8:1-3", "judges 8:1".  Returns None when no
+    verse reference is detected.
+    """
+    for pattern in (_VERSE_COLON_RE, _VERSE_SPACE_DASH_RE, _VERSE_SPACE_TO_RE):
+        m = pattern.search(text)
+        if m:
+            book = m.group("book").strip().lower()
+            ch = m.group("ch")
+            vs = m.group("vs")
+            ve = m.group("ve")  # may be None
+            ref = f"{book} {ch}:{vs}"
+            if ve:
+                ref += f"-{ve}"
+            return ref
+    return None
+
+
 def _insert_cache_row(
     db: Session,
     *,
@@ -75,6 +120,7 @@ def _insert_cache_row(
     similarity_score: float | None = None,
     token_information: dict | None = None,
     session_id: str = "",
+    verse_reference: str | None = None,
 ) -> None:
     row = QueryCache(
         question_raw=question_raw,
@@ -89,6 +135,7 @@ def _insert_cache_row(
         similarity_score=str(similarity_score) if similarity_score is not None else None,
         token_information=token_information or {},
         session_id=session_id,
+        verse_reference=verse_reference,
     )
     db.add(row)
     db.commit()
@@ -107,6 +154,7 @@ def answer_question(
         # Normalize the question for better search and potential caching
         normalized_query = normalize_question(query)
         question_hash = hashlib.sha256(normalized_query.encode()).hexdigest()
+        verse_ref = extract_verse_reference(query)
 
         # Step 1: Exact match search for previously answered questions to avoid unnecessary API calls
 
@@ -130,10 +178,14 @@ def answer_question(
                 cache_hit_type="exact",
                 cache_source_id=row.query_id,
                 session_id=session_id or "",
+                verse_reference=verse_ref,
             )
             return {"answer": row.response, "sources": row.sources or []}
 
         # Step 2: Vector match from previous searches
+        # For verse-specific questions we restrict candidates to rows with the
+        # same canonical verse reference, so "Romans 8:1-2" never matches
+        # "Romans 8:1-6" even though their embeddings are very similar.
 
         # creating the embedding for the question to perform vector search
         embed_response = client.embeddings.create(
@@ -144,13 +196,20 @@ def answer_question(
         question_embedding = embed_response.data[0].embedding
 
         distance_expr = QueryCache.embedding.cosine_distance(question_embedding).label("distance")
-        stmt = (
+        vector_stmt = (
             select(QueryCache, distance_expr)
-            .where(QueryCache.cache_hit == False)  # only consider the previous questions that were not cache hits themselves
+            .where(QueryCache.cache_hit == False)  # noqa: E712
             .order_by(distance_expr)
             .limit(1)
         )
-        row = db.execute(stmt).first()
+        if verse_ref is not None:
+            # Only match against rows that reference the exact same verse(s)
+            vector_stmt = vector_stmt.where(QueryCache.verse_reference == verse_ref)
+        else:
+            # Exclude verse-specific rows from general vector matching
+            vector_stmt = vector_stmt.where(QueryCache.verse_reference.is_(None))
+
+        row = db.execute(vector_stmt).first()
 
         if row:
             cached, distance = row
@@ -174,6 +233,7 @@ def answer_question(
                         "embedding_tokens": embed_response.usage.prompt_tokens,
                     },
                     session_id=session_id or "",
+                    verse_reference=verse_ref,
                 )
                 return {"answer": cached.response, "sources": cached.sources or []}
 
@@ -236,6 +296,7 @@ def answer_question(
                 "completion_tokens": completion.usage.total_tokens,
             },
             session_id=session_id or "",
+            verse_reference=verse_ref,
         )
 
         return {"answer": answer, "sources": sources}
