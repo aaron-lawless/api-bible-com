@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models import QueryCache
 from app.services.openai_client import create_openai_client
-from app.services import chunk_store
+from app.services import chunk_store, bible_api
 from app.config import Config
 
 logger = logging.getLogger(__name__)
@@ -88,24 +88,25 @@ _VERSE_SPACE_TO_RE = re.compile(
 )
 
 
-def extract_verse_reference(text: str) -> str | None:
-    """Return a canonical verse reference string if one is found in *text*.
+def extract_verse_reference(text: str) -> tuple[str, str, int, int, int | None] | None:
+    """Return structured verse reference info if a verse reference is found in *text*.
 
-    Canonical form: "<book> <chapter>:<verse_start>[-<verse_end>]"
-    All lowercase, e.g. "romans 8:1-3", "judges 8:1".  Returns None when no
-    verse reference is detected.
+    Returns a tuple of (canonical_ref, book, chapter, verse_start, verse_end) or None.
+    canonical_ref is the normalised string stored in the DB, e.g. "romans 8:1-3".
+    verse_end is None for single-verse references.
     """
     for pattern in (_VERSE_COLON_RE, _VERSE_SPACE_DASH_RE, _VERSE_SPACE_TO_RE):
         m = pattern.search(text)
         if m:
             book = m.group("book").strip().lower()
-            ch = m.group("ch")
-            vs = m.group("vs")
-            ve = m.group("ve")  # may be None
+            ch = int(m.group("ch"))
+            vs = int(m.group("vs"))
+            ve_str = m.group("ve")  # may be None
+            ve = int(ve_str) if ve_str else None
             ref = f"{book} {ch}:{vs}"
             if ve:
                 ref += f"-{ve}"
-            return ref
+            return ref, book, ch, vs, ve
     return None
 
 
@@ -158,7 +159,24 @@ def answer_question(
         # Normalize the question for better search and potential caching
         normalized_query = normalize_question(query)
         question_hash = hashlib.sha256(normalized_query.encode()).hexdigest()
-        verse_ref = extract_verse_reference(query)
+
+        parsed_verse = extract_verse_reference(query)
+        verse_ref = parsed_verse[0] if parsed_verse else None
+
+        # Query expansion: append the actual verse text to the embedding input so
+        # that the vector search finds chunks that quote or paraphrase the passage.
+        embed_input = normalized_query
+        if parsed_verse:
+            _, book, chapter, verse_start, verse_end = parsed_verse
+            verse_text = bible_api.get_verse_text(
+                book_name=book,
+                chapter=chapter,
+                verse_start=verse_start,
+                verse_end=verse_end,
+            )
+            if verse_text:
+                embed_input = f"{normalized_query}\n\n{verse_text}"
+                logger.info("Query expanded with verse text for %s", verse_ref)
 
         # Step 1: Exact match search for previously answered questions to avoid unnecessary API calls
 
@@ -194,7 +212,7 @@ def answer_question(
         # creating the embedding for the question to perform vector search
         embed_response = client.embeddings.create(
             model=Config.EMBEDDING_MODEL,
-            input=[normalized_query],
+            input=[embed_input],
         )
 
         question_embedding = embed_response.data[0].embedding
@@ -206,6 +224,7 @@ def answer_question(
             .order_by(distance_expr)
             .limit(1)
         )
+        # This is to prevent matching a question about "Romans 8:1-2" to a previous question about "Romans 8:1-6" which would likely have a very similar embedding but is not actually relevant to the user's specific question. By ensuring that verse-specific questions only match against previous questions about the exact same verse(s), we can maintain much higher precision in the vector search results for verse-specific queries.
         if verse_ref is not None:
             # Only match against rows that reference the exact same verse(s)
             vector_stmt = vector_stmt.where(QueryCache.verse_reference == verse_ref)
@@ -218,8 +237,7 @@ def answer_question(
         if row:
             cached, distance = row
             similarity = 1 - float(distance)
-            # TODO: we will want to have this as a configurable threshold
-            print(f"Vector cache similarity: {similarity:.4f} for question: {query[:80]}")
+            logger.info(f"Vector cache similarity: {similarity:.4f} for question: {query[:80]}")
             if similarity > 0.85:
                 _insert_cache_row(
                     db=db,
