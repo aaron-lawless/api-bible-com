@@ -17,6 +17,20 @@ logger = logging.getLogger(__name__)
 # Load the spaCy model
 nlp = spacy.load("en_core_web_sm")
 
+# Biblical book names that must never be lemmatized
+_BIBLE_BOOKS: frozenset[str] = frozenset({
+    "genesis", "exodus", "leviticus", "numbers", "deuteronomy",
+    "joshua", "judges", "ruth", "ezra", "nehemiah", "esther", "job",
+    "psalms", "psalm", "proverbs", "ecclesiastes", "isaiah", "jeremiah",
+    "lamentations", "ezekiel", "daniel", "hosea", "joel", "amos",
+    "obadiah", "jonah", "micah", "nahum", "habakkuk", "zephaniah",
+    "haggai", "zechariah", "malachi", "matthew", "mark", "luke", "john",
+    "acts", "romans", "galatians", "ephesians", "philippians", "colossians",
+    "titus", "philemon", "hebrews", "james", "jude", "revelation",
+    "corinthians", "thessalonians", "timothy", "peter", "kings", "samuel",
+    "chronicles",
+})
+
 #TODO: we will want to add configuration to point pastors if too deep
 #TODO: we will want to shorting of answers to reduce token usage
 SYSTEM_PROMPT = """You are a Christian theological assistant helping users understand the Bible through the provided sources.
@@ -32,8 +46,17 @@ Write with clarity and pastoral warmth, grounded entirely in the provided docume
 # normalizing the question to reduce noise in the vector search & token usage
 # in additional this is helpful for exact match searches of previous questions/answers to avoid extra AI API calls
 def normalize_question(text: str) -> str:
-    doc = nlp(text.lower())
-    tokens = [token.lemma_ for token in doc if not token.is_stop and not token.is_punct]
+    doc = nlp(text)
+    tokens = []
+    for token in doc:
+        if token.is_stop or token.is_punct:
+            continue
+        lower = token.text.lower()
+        # Preserve biblical book names and proper nouns without lemmatization
+        if lower in _BIBLE_BOOKS or token.pos_ == "PROPN":
+            tokens.append(lower)
+        else:
+            tokens.append(token.lemma_.lower())
     return " ".join(tokens)
 
 
