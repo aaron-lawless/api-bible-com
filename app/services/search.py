@@ -1,4 +1,4 @@
-import hashlib
+﻿import hashlib
 import json
 import logging
 import re
@@ -60,6 +60,8 @@ Do not add information not found in the excerpt. Be concise but thorough."""
 
 # How many pages constitute a "large" section that warrants pre-distillation
 _DISTILL_THRESHOLD_PAGES = 15
+# Fallback for single-page URL ingests: distil if raw text exceeds this (~ 3,000 tokens)
+_DISTILL_THRESHOLD_CHARS = 12_000
 
 
 def normalize_question(text: str) -> str:
@@ -195,7 +197,6 @@ def _tier1_route_documents(
         f"[{i+1}] document_id={str(row.Document.document_id)}\n"
         f"Title: {row.Document.title}\n"
         f"Author: {row.Document.author or 'Unknown'}\n"
-        f"Framework: {row.Document.theological_framework or 'N/A'}\n"
         f"Focus: {row.Document.focus_area or 'N/A'}\n"
         f"Summary: {row.Document.summary}"
         for i, row in enumerate(candidates)
@@ -335,13 +336,24 @@ def _extract_page_text(
 # Distillation (per-source summary for large extracts or multi-source)
 # ---------------------------------------------------------------------------
 
+# Hard cap on input to a single distillation call (~20,000 tokens at 4 chars/token).
+# Prevents 429s when a section is very large. Add a TOC to avoid hitting this limit.
+_DISTILL_MAX_INPUT_CHARS = 80_000
+
+
 def _distill_source(
     query: str,
     doc_title: str,
     section_title: str,
     raw_text: str,
     client: openai.OpenAI,
-) -> str:
+) -> tuple[str, dict[str, int]]:
+    if len(raw_text) > _DISTILL_MAX_INPUT_CHARS:
+        logger.warning(
+            "Distill input for '%s' truncated from %d to %d chars — add a TOC to avoid this",
+            doc_title, len(raw_text), _DISTILL_MAX_INPUT_CHARS,
+        )
+        raw_text = raw_text[:_DISTILL_MAX_INPUT_CHARS]
     user_msg = (
         f"Query: {query}\n\n"
         f"Source: {doc_title} -- {section_title}\n\n"
@@ -356,7 +368,13 @@ def _distill_source(
         temperature=0,
         max_tokens=1024,
     )
-    return response.choices[0].message.content
+    usage = response.usage
+    token_info = {
+        "prompt_tokens": int(getattr(usage, "prompt_tokens", 0) or 0),
+        "completion_tokens": int(getattr(usage, "completion_tokens", 0) or 0),
+        "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
+    }
+    return response.choices[0].message.content, token_info
 
 
 # ---------------------------------------------------------------------------
@@ -383,6 +401,9 @@ def _run_pipeline(
         normalized_query = normalize_question(query)
         question_hash = hashlib.sha256(normalized_query.encode()).hexdigest()
         verse_ref = (extract_verse_reference(query) or [None])[0]
+
+        # Option 1: Cache hit -- return cached answer without running pipeline (Fast and Cheapest)
+        # Question hash matches exactly with a previous query that had no cache hit (i.e. was not previously served from cache)
 
         # -- Cache check -----------------------------------------------------
         on_thinking("Checking query cache...")
@@ -411,6 +432,8 @@ def _run_pipeline(
             )
             return {"answer": exact_row.response, "sources": exact_row.sources or []}
 
+        # Option 2: Checking for semantically similar cached questions asked using vector search (Fast and Cheaper than full pipeline)
+
         # -- Embed query ------------------------------------------------------
         query_embedding, embed_tokens = _embed_query(client, normalized_query)
 
@@ -422,9 +445,12 @@ def _run_pipeline(
             .order_by(distance_expr)
             .limit(1)
         )
+        # If the question has a verse reference, we only want to compare against cached questions with the same verse reference. 
+        # If it doesn't have a verse reference, we only want to compare against cached questions that also don't have a verse reference. This prevents us from accidentally returning a cached answer about a different verse that happens to have a similar embedding.
         if verse_ref is not None:
             vcache_stmt = vcache_stmt.where(QueryCache.verse_reference == verse_ref)
         else:
+            # For questions without verse refs
             vcache_stmt = vcache_stmt.where(QueryCache.verse_reference.is_(None))
 
         vcache_row = db.execute(vcache_stmt).first()
@@ -445,11 +471,18 @@ def _run_pipeline(
                     cache_hit_type="vector",
                     cache_source_id=cached.query_id,
                     similarity_score=similarity,
-                    token_information={"embedding_tokens": embed_tokens},
+                        token_information={
+                            "embedding": {
+                                "hit": True,
+                                "prompt_tokens": embed_tokens,
+                            }
+                        },
                     session_id=session_id,
                     verse_reference=verse_ref,
                 )
                 return {"answer": cached.response, "sources": cached.sources or []}
+
+        # Option 3: No cache hit -- run full pipeline (Slowest and Most Expensive)
 
         # -- Tier 1: Document routing -----------------------------------------
         on_thinking("Selecting relevant sources...")
@@ -457,10 +490,10 @@ def _run_pipeline(
             query, query_embedding, document_ids, client, db
         )
 
+        # If unable to find any relevant documents -- Early Exit
         if not selected_docs:
             answer = (
-                "I could not find any relevant sources in the library for your question. "
-                "Please ensure documents have been ingested and try rephrasing your query."
+               "I'm sorry, I couldn't find any relevant sources in the library to answer your question. Please try rephrasing or asking about a different topic."
             )
             _insert_cache_row(
                 db=db,
@@ -471,7 +504,12 @@ def _run_pipeline(
                 response=answer,
                 cache_hit=False,
                 sources=[],
-                token_information={"embedding_tokens": embed_tokens},
+                token_information={
+                    "embedding": {
+                        "hit": True,
+                        "prompt_tokens": embed_tokens,
+                    }
+                },
                 session_id=session_id,
                 verse_reference=verse_ref,
             )
@@ -501,6 +539,13 @@ def _run_pipeline(
         # -- Synthesis --------------------------------------------------------
         on_thinking("Synthesizing final answer...")
 
+        distill_tokens = {
+            "calls": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
+
         sources_out = [
             {
                 "document_id": str(sd["doc"].document_id),
@@ -513,15 +558,21 @@ def _run_pipeline(
             for sd in source_data
         ]
 
+        # If there's only one source, we can feed the full text to the LLM. 
+        # If there are multiple sources, we distill each one first to avoid hitting token limits, then feed the briefs to the LLM for final synthesis.
         if len(source_data) == 1:
             sd = source_data[0]
             page_count = sd["end_page"] - sd["start_page"] + 1
 
-            if page_count > _DISTILL_THRESHOLD_PAGES:
+            if page_count > _DISTILL_THRESHOLD_PAGES or len(sd["raw_text"]) > _DISTILL_THRESHOLD_CHARS:
                 on_thinking(f"Distilling large extract from: {sd['doc'].title}")
-                context_text = _distill_source(
+                context_text, distill_usage = _distill_source(
                     query, sd["doc"].title, sd["section_title"], sd["raw_text"], client
                 )
+                distill_tokens["calls"] += 1
+                distill_tokens["prompt_tokens"] += distill_usage["prompt_tokens"]
+                distill_tokens["completion_tokens"] += distill_usage["completion_tokens"]
+                distill_tokens["total_tokens"] += distill_usage["total_tokens"]
             else:
                 context_text = (
                     f"[Source: {sd['doc'].title} -- {sd['section_title']}, "
@@ -535,16 +586,31 @@ def _run_pipeline(
 
             def _distil(sd):
                 page_count = sd["end_page"] - sd["start_page"] + 1
-                return sd, _distill_source(
-                    query, sd["doc"].title, sd["section_title"], sd["raw_text"], client
-                )
+                if page_count > _DISTILL_THRESHOLD_PAGES or len(sd["raw_text"]) > _DISTILL_THRESHOLD_CHARS:
+                    brief, usage = _distill_source(
+                        query, sd["doc"].title, sd["section_title"], sd["raw_text"], client
+                    )
+                else:
+                    brief = (
+                        f"[Source: {sd['doc'].title} -- {sd['section_title']}, "
+                        f"pages {sd['start_page']}-{sd['end_page']}]\n\n{sd['raw_text']}"
+                    )
+                    usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+                return sd, brief, usage
 
+            # Distil in parallel to speed up processing of multiple large sources
+            # TODO: Could we lanch distillation tasks on a seprate pod or something? I am used to doing this on openshift but not sure how to do this on railway
             with ThreadPoolExecutor(max_workers=min(len(source_data), 4)) as pool:
                 futures = {pool.submit(_distil, sd): sd for sd in source_data}
                 for future in as_completed(futures):
-                    sd, brief = future.result()
+                    sd, brief, usage = future.result()
                     on_thinking(f"Distilled research brief for: {sd['doc'].title}")
                     briefs[str(sd["doc"].document_id)] = brief
+                    if usage["total_tokens"] > 0:
+                        distill_tokens["calls"] += 1
+                        distill_tokens["prompt_tokens"] += usage["prompt_tokens"]
+                        distill_tokens["completion_tokens"] += usage["completion_tokens"]
+                        distill_tokens["total_tokens"] += usage["total_tokens"]
 
             context_parts = [
                 f"[Source: {sd['doc'].title} -- {sd['section_title']}, "
@@ -560,7 +626,7 @@ def _run_pipeline(
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_message},
             ],
-            max_tokens=2048,
+            max_tokens=3500,
             temperature=0,
         )
         answer = completion.choices[0].message.content
@@ -574,10 +640,33 @@ def _run_pipeline(
             response=answer,
             cache_hit=False,
             sources=sources_out,
-            token_information={
-                "embedding_tokens": embed_tokens,
-                "completion_tokens": completion.usage.total_tokens,
-            },
+            token_information=(
+                {
+                    "embedding": {
+                        "hit": True,
+                        "prompt_tokens": embed_tokens,
+                    },
+                    "chat_completion": {
+                        "hit": True,
+                        "prompt_tokens": int(getattr(completion.usage, "prompt_tokens", 0) or 0),
+                        "completion_tokens": int(getattr(completion.usage, "completion_tokens", 0) or 0),
+                        "total_tokens": int(getattr(completion.usage, "total_tokens", 0) or 0),
+                    },
+                    **(
+                        {
+                            "distill": {
+                                "hit": True,
+                                "calls": distill_tokens["calls"],
+                                "prompt_tokens": distill_tokens["prompt_tokens"],
+                                "completion_tokens": distill_tokens["completion_tokens"],
+                                "total_tokens": distill_tokens["total_tokens"],
+                            }
+                        }
+                        if distill_tokens["calls"] > 0
+                        else {}
+                    ),
+                }
+            ),
             session_id=session_id,
             verse_reference=verse_ref,
         )

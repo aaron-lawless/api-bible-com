@@ -19,7 +19,6 @@ class Document(Base):
     source = Column(Text)
     summary = Column(Text, nullable=False)
     total_pages = Column(Integer, nullable=False)
-    theological_framework = Column(Text)
     focus_area = Column(Text)
     summary_embedding = Column(Vector(1536))
     created_at = Column(
@@ -53,7 +52,6 @@ class Document(Base):
             "source": self.source,
             "summary": self.summary,
             "total_pages": self.total_pages,
-            "theological_framework": self.theological_framework,
             "focus_area": self.focus_area,
             "created_at": (
                 self.created_at.isoformat() if self.created_at else None

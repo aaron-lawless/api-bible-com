@@ -162,7 +162,6 @@ Each query is recorded in `query_cache` with:
 | `summary` | Yes | Short summary used for Tier 1 vector routing |
 | `author` | No | Author name |
 | `date_published` | No | Publication date (YYYY-MM-DD) |
-| `theological_framework` | No | e.g. "Reformed", "Catholic", "Arminian" |
 | `focus_area` | No | e.g. "Pauline epistles", "Eschatology" |
 
 **`POST /ingest/url` form fields:**
@@ -174,7 +173,6 @@ Each query is recorded in `query_cache` with:
 | `summary` | Yes | Short summary used for Tier 1 vector routing |
 | `author` | No | Author name |
 | `date_published` | No | Publication date (YYYY-MM-DD) |
-| `theological_framework` | No | e.g. "Reformed", "Catholic", "Arminian" |
 | `focus_area` | No | e.g. "Pauline epistles", "Eschatology" |
 
 ---

@@ -19,6 +19,25 @@ ingest_router = APIRouter()
 
 ALLOWED_EXTENSIONS = {"pdf", "docx", "txt"}
 
+# Target characters per page for URL ingests (~1,000 tokens at ~4 chars/token)
+_URL_CHUNK_CHARS = 4_000
+
+
+def _chunk_text(text: str, chunk_size: int) -> list[str]:
+    """Split text into chunks of approximately chunk_size characters,
+    breaking at paragraph boundaries where possible."""
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        if end < len(text):
+            boundary = text.rfind("\n\n", start, end)
+            if boundary > start:
+                end = boundary
+        chunks.append(text[start:end].strip())
+        start = end
+    return [c for c in chunks if c]
+
 
 def _allowed_file(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -40,7 +59,6 @@ def ingest_pdf(
     author: Optional[str] = Form(None),
     date_published: Optional[str] = Form(None),
     summary: Optional[str] = Form(None),
-    theological_framework: Optional[str] = Form(None),
     focus_area: Optional[str] = Form(None),
     db: Session = Depends(get_db),
 ):
@@ -85,7 +103,6 @@ def ingest_pdf(
             source=None,
             summary=summary,
             total_pages=len(pages),
-            theological_framework=theological_framework or None,
             focus_area=focus_area or None,
             summary_embedding=summary_embedding,
         )
@@ -124,7 +141,6 @@ def ingest_url(
     author: Optional[str] = Form(None),
     date_published: Optional[str] = Form(None),
     summary: Optional[str] = Form(None),
-    theological_framework: Optional[str] = Form(None),
     focus_area: Optional[str] = Form(None),
     db: Session = Depends(get_db),
 ):
@@ -152,6 +168,7 @@ def ingest_url(
         raise HTTPException(status_code=502, detail=f"OpenAI API error: {exc}")
 
     parsed_date = _parse_date(date_published)
+    chunks = _chunk_text(text, _URL_CHUNK_CHARS)
 
     try:
         doc = Document(
@@ -160,34 +177,40 @@ def ingest_url(
             date_published=parsed_date,
             source=url,
             summary=summary,
-            total_pages=1,
-            theological_framework=theological_framework or None,
+            total_pages=len(chunks),
             focus_area=focus_area or None,
             summary_embedding=summary_embedding,
         )
         db.add(doc)
         db.flush()
 
-        db.add(DocumentPage(
-            document_id=doc.document_id,
-            page_number=1,
-            raw_text=text,
-        ))
+        db.add_all(
+            DocumentPage(
+                document_id=doc.document_id,
+                page_number=i + 1,
+                raw_text=chunk,
+            )
+            for i, chunk in enumerate(chunks)
+        )
 
         db.add(DocumentStructure(
             document_id=doc.document_id,
             section_title="Full Article Text",
             start_page=1,
-            end_page=1,
+            end_page=len(chunks),
             level=1,
         ))
 
         db.commit()
 
-        logger.info("Ingested URL '%s' as document '%s' (id=%s)", url, title, doc.document_id)
+        logger.info(
+            "Ingested URL '%s' as document '%s' with %d pages (id=%s)",
+            url, title, len(chunks), doc.document_id,
+        )
         return {
             "document_id": str(doc.document_id),
             "title": title,
+            "total_pages": len(chunks),
         }
     except Exception as exc:
         db.rollback()

@@ -43,7 +43,6 @@
                 <div class="form-group"><label>Author</label><input type="text" name="author" placeholder="Author name" /></div>
                 <div class="form-group"><label>Date Published</label><input type="date" name="date_published" /></div>
                 <div class="form-group"><label>Summary * <span style="font-weight:400;font-size:0.78rem;color:var(--text-muted)">(used by AI to select this source)</span></label><textarea name="summary" rows="3" placeholder="A concise description of this document's scope, author perspective, and content focus." required style="width:100%;resize:vertical;"></textarea></div>
-                <div class="form-group"><label>Theological Framework</label><input type="text" name="theological_framework" placeholder="e.g. Reformed, Historical-Critical" /></div>
                 <div class="form-group"><label>Focus Area</label><input type="text" name="focus_area" placeholder="e.g. Linguistic/Exegesis, Homiletical" /></div>
                 <button type="submit" class="btn btn-primary" id="pdf-btn">Upload &amp; Ingest</button>
               </form>
@@ -59,7 +58,6 @@
                 <div class="form-group"><label>Author</label><input type="text" name="author" /></div>
                 <div class="form-group"><label>Date Published</label><input type="date" name="date_published" /></div>
                 <div class="form-group"><label>Summary * <span style="font-weight:400;font-size:0.78rem;color:var(--text-muted)">(used by AI to select this source)</span></label><textarea name="summary" rows="3" placeholder="A concise description of this article's scope and perspective." required style="width:100%;resize:vertical;"></textarea></div>
-                <div class="form-group"><label>Theological Framework</label><input type="text" name="theological_framework" placeholder="e.g. Reformed, Historical-Critical" /></div>
                 <div class="form-group"><label>Focus Area</label><input type="text" name="focus_area" placeholder="e.g. Apologetics, Devotional" /></div>
                 <button type="submit" class="btn btn-primary" id="url-btn">Scrape &amp; Ingest</button>
               </form>
@@ -248,7 +246,6 @@
                 ${escapeHtml(doc.author || '—')}
                 ${doc.date_published ? ' · ' + escapeHtml(doc.date_published) : ''}
                 · ${doc.total_pages} page${doc.total_pages === 1 ? '' : 's'}
-                ${doc.theological_framework ? ' · ' + escapeHtml(doc.theological_framework) : ''}
               </div>
             </div>
             <div class="doc-item-actions">
