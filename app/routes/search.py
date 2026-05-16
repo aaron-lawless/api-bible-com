@@ -10,11 +10,12 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
+from sse_starlette.sse import EventSourceResponse
 
 from app.config import Config
 from app.database import get_db
 from app.models import QueryCache
-from app.services.search import answer_question
+from app.services.search import answer_question, answer_question_stream
 
 _templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
@@ -27,10 +28,9 @@ search_router = APIRouter()
 def search_ui(request: Request):
     return _templates.TemplateResponse("index.html", {"request": request})
 
-# TODO: we will want to move this to a schemas.py if request models grow
+
 class SearchRequest(BaseModel):
     query: str
-    top_k: int = 10
     document_ids: Optional[List[str]] = None
 
     @field_validator("query")
@@ -39,13 +39,6 @@ class SearchRequest(BaseModel):
         v = v.strip()
         if not v:
             raise ValueError("query is required")
-        return v
-
-    @field_validator("top_k")
-    @classmethod
-    def top_k_positive(cls, v: int) -> int:
-        if v < 1:
-            raise ValueError("top_k must be a positive integer")
         return v
 
     @field_validator("document_ids")
@@ -68,7 +61,6 @@ def search(request: Request, body: SearchRequest, db: Session = Depends(get_db))
     try:
         result = answer_question(
             query=body.query,
-            top_k=body.top_k,
             document_ids=body.document_ids,
             api_key=Config.OPENAI_API_KEY,
             db=db,
@@ -82,6 +74,43 @@ def search(request: Request, body: SearchRequest, db: Session = Depends(get_db))
     except Exception as exc:
         logger.error("Unexpected error during search: %s", exc)
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+def _parse_document_ids(raw: Optional[List[str]]) -> Optional[List[str]]:
+    if raw is None:
+        return None
+    validated = []
+    for item in raw:
+        try:
+            validated.append(str(uuid.UUID(item)))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid document_id: {item}")
+    return validated
+
+
+@search_router.get("/search/stream")
+async def search_stream(
+    request: Request,
+    query: str = Query(..., min_length=1),
+    document_ids: Optional[List[str]] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Server-Sent Events endpoint. Streams pipeline thinking steps then the final answer."""
+    if "session_id" not in request.session:
+        request.session["session_id"] = str(uuid.uuid4())
+    session_id = request.session["session_id"]
+
+    validated_ids = _parse_document_ids(document_ids)
+
+    return EventSourceResponse(
+        answer_question_stream(
+            query=query,
+            document_ids=validated_ids,
+            api_key=Config.OPENAI_API_KEY,
+            db=db,
+            session_id=session_id,
+        )
+    )
 
 
 @search_router.get("/questions")
@@ -146,4 +175,9 @@ def get_question_answer(query_id: str, db: Session = Depends(get_db)):
         "answer": row.response,
         "sources": row.sources or [],
     }
+
+
+_templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
+
+logger = logging.getLogger(__name__)
 

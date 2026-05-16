@@ -26,8 +26,10 @@ def test_resolve_mode_invalid(monkeypatch):
         _resolve_mode()
 
 
-def test_resolve_database_uri_local_uses_sqlite():
-    assert _resolve_database_uri(Mode.LOCAL) == "sqlite:///aibible-dev.db"
+def test_resolve_database_uri_requires_database_url(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    with pytest.raises(ValueError, match="DATABASE_URL"):
+        _resolve_database_uri(Mode.LOCAL)
 
 
 def test_resolve_database_uri_nprd_uses_database_url(monkeypatch):
@@ -42,7 +44,7 @@ def test_resolve_database_uri_prd_uses_database_url(monkeypatch):
 
 def test_resolve_database_uri_nprd_raises_without_database_url(monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    with pytest.raises(ValueError, match="DATABASE_URL is required"):
+    with pytest.raises(ValueError, match="DATABASE_URL"):
         _resolve_database_uri(Mode.NPRD)
 
 

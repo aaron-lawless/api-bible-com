@@ -1,7 +1,7 @@
 import logging
 from urllib.parse import urlparse
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker, Session
 
 from app.config import Config
@@ -10,6 +10,15 @@ logger = logging.getLogger("db_startup")
 
 engine = create_engine(Config.SQLALCHEMY_DATABASE_URI)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+# Register the pgvector extension on every new connection so that
+# SQLAlchemy's metadata operations (create_all, etc.) can see vector columns.
+@event.listens_for(engine, "connect")
+def _register_vector_extension(dbapi_conn, _connection_record):
+    with dbapi_conn.cursor() as cur:
+        cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    dbapi_conn.commit()
 
 
 class Base(DeclarativeBase):
@@ -33,9 +42,6 @@ def _format_database_target(database_uri: str) -> str:
         port = parsed.port or 5432
         database_name = (parsed.path or "/").lstrip("/") or "unknown-db"
         return f"Postgres host={host} port={port} db={database_name}"
-
-    if scheme.startswith("sqlite"):
-        return f"SQLite {parsed.path or database_uri}"
 
     return f"{scheme} {database_uri}"
 
