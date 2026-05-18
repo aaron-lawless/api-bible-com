@@ -10,7 +10,7 @@ from app.config import Config
 from app.database import get_db
 from app.models import Document, DocumentPage, DocumentStructure
 from app.services.embedder import embed_text
-from app.services.extractor import extract_pages
+from app.services.extractor import build_toc_from_pages, extract_pages
 from app.services.scraper import scrape_url
 
 logger = logging.getLogger(__name__)
@@ -118,6 +118,29 @@ def ingest_pdf(
             for page_num, text in pages
         )
 
+        # Creating the TOC automatically from markdown headings in the extracted text
+        toc = build_toc_from_pages(pages)
+        if toc:
+            db.add_all(
+                DocumentStructure(
+                    document_id=doc.document_id,
+                    section_title=entry["section_title"],
+                    start_page=entry["start_page"],
+                    end_page=entry["end_page"],
+                    level=entry["level"],
+                )
+                for entry in toc
+            )
+        else:
+            logger.warning("No headings found in PDF '%s'; adding single section for full text", title)
+            db.add(DocumentStructure(
+                document_id=doc.document_id,
+                section_title="Full Document Text",
+                start_page=1,
+                end_page=len(pages),
+                level=1,
+            ))
+
         db.commit()
 
         logger.info(
@@ -184,22 +207,40 @@ def ingest_url(
         db.add(doc)
         db.flush()
 
+        pages = [(i + 1, chunk) for i, chunk in enumerate(chunks)]
+
         db.add_all(
             DocumentPage(
                 document_id=doc.document_id,
-                page_number=i + 1,
+                page_number=page_num,
                 raw_text=chunk,
             )
-            for i, chunk in enumerate(chunks)
+            for page_num, chunk in pages
         )
 
-        db.add(DocumentStructure(
-            document_id=doc.document_id,
-            section_title="Full Article Text",
-            start_page=1,
-            end_page=len(chunks),
-            level=1,
-        ))
+        #TODO make this a function that can be shared with the PDF ingest route, since it also creates a TOC from markdown headings in the extracted text
+        # Creating the TOC automatically from markdown headings in the extracted text
+        toc = build_toc_from_pages(pages)
+        if toc:
+            db.add_all(
+                DocumentStructure(
+                    document_id=doc.document_id,
+                    section_title=entry["section_title"],
+                    start_page=entry["start_page"],
+                    end_page=entry["end_page"],
+                    level=entry["level"],
+                )
+                for entry in toc
+            )
+        else:
+            logger.warning("No headings found in URL '%s'; adding single section for full text", url)
+            db.add(DocumentStructure(
+                document_id=doc.document_id,
+                section_title="Full Article Text",
+                start_page=1,
+                end_page=len(chunks),
+                level=1,
+            ))
 
         db.commit()
 

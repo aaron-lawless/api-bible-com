@@ -34,6 +34,7 @@ def scrape_url(url: str, timeout: int = 30) -> str:
         include_comments=False,
         include_tables=True,
         no_fallback=False,
+        output_format="markdown",
     )
 
     if not text or not text.strip():

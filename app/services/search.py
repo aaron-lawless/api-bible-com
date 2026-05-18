@@ -389,7 +389,10 @@ def _run_pipeline(
     session_id: str,
     on_thinking: callable,  # fn(message: str) -> None
 ) -> dict:
-    """Execute the full Tier1->Tier2->extract->synthesise pipeline.
+    """Pipeline has 3 tiers:
+    1. Exact cache match on normalized question hash
+    2. Semantic cache match using vector search on question embedding
+    3. Agentic pipeline with: document routing (Tier 1), section navigation (Tier 2), page extraction, and synthesis
 
     *on_thinking* is called synchronously at each stage with a human-readable
     status string, enabling SSE streaming without duplicating pipeline logic.
@@ -406,7 +409,7 @@ def _run_pipeline(
         # Question hash matches exactly with a previous query that had no cache hit (i.e. was not previously served from cache)
 
         # -- Cache check -----------------------------------------------------
-        on_thinking("Checking query cache...")
+        on_thinking("Thainking...")
 
         exact_row = db.execute(
             select(QueryCache)
@@ -458,7 +461,7 @@ def _run_pipeline(
             cached, distance = vcache_row
             similarity = 1 - float(distance)
             if similarity > 0.85:
-                on_thinking("Found semantically similar cached answer.")
+                on_thinking("Found similar answer in cache")
                 _insert_cache_row(
                     db=db,
                     question_raw=query,
@@ -537,7 +540,7 @@ def _run_pipeline(
             })
 
         # -- Synthesis --------------------------------------------------------
-        on_thinking("Synthesizing final answer...")
+        on_thinking("Summarizing ...")
 
         distill_tokens = {
             "calls": 0,
