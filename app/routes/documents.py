@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Document, DocumentStructure
+from app.models.database import Document, DocumentStructure
 
 logger = logging.getLogger(__name__)
 

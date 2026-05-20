@@ -25,3 +25,8 @@ def create_openai_client(
             max_retries=0,
             http_client=httpx.Client(timeout=timeout_seconds),
         )
+    
+# TODO look at the embedder file and look for the similar function and consolidate them.
+def _embed_query(client: openai.OpenAI, text: str, model: str) -> tuple[list[float], int]:
+    resp = client.embeddings.create(model=model, input=[text])
+    return resp.data[0].embedding, resp.usage.prompt_tokens

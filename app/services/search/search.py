@@ -1,4 +1,4 @@
-﻿import hashlib
+import hashlib
 import json
 import logging
 import re
@@ -13,32 +13,37 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.database import Document, DocumentStructure, DocumentPage, QueryCache, ConversationSession
-from app.services.llm.openai_client import create_openai_client
+from app.services.llm.openai_client import _embed_query, create_openai_client
 from app.config import Config
-from app.services.search.constants import _REWRITE_PROMPT
+from app.services.search import _distill_source
+from app.services.search.cache import _append_history, _insert_cache_row
+from app.services.search.constants import (
+    _DISTILL_MAX_INPUT_CHARS,
+    _DISTILL_THRESHOLD_CHARS,
+    _DISTILL_THRESHOLD_PAGES,
+    _REWRITE_PROMPT,
+    DISTILL_PROMPT,
+    NAV_PROMPT,
+    ROUTING_PROMPT,
+    SYSTEM_PROMPT,
+)
+from app.services.search.utils import _extract_page_text, _load_history, _rewrite_with_history, extract_verse_reference, normalize_question
 
 logger = logging.getLogger(__name__)
+
+# TODO: Create models that the llm should respond with
 
 # ---------------------------------------------------------------------------
 # Tier 1 -- Document Router
 # ---------------------------------------------------------------------------
 
-
 def _tier1_route_documents(
     query: str,
     query_embedding: list[float],
-    document_ids_override: list[str] | None,
     client: openai.OpenAI,
     db: Session,
 ) -> list[Document]:
     """Return the list of Document objects to search for this query."""
-    if document_ids_override:
-        docs = []
-        for did in document_ids_override:
-            doc = db.get(Document, uuid.UUID(did))
-            if doc:
-                docs.append(doc)
-        return docs
 
     # pgvector pre-filter: cosine similarity on summary embeddings
     top_k = Config.TIER1_PREFILTER_TOP_K
@@ -66,14 +71,9 @@ def _tier1_route_documents(
         for i, row in enumerate(candidates)
     )
 
-    # TODO: Move this to the prompt file
-    routing_prompt = (
-        "You are a theological research librarian. A user has asked the following question:\n\n"
-        f"QUESTION: {query}\n\n"
-        "Below are the available sources. Select the document IDs most likely to contain a "
-        "relevant answer. Return ONLY a JSON array of document_id strings -- no explanation.\n\n"
-        f"{doc_summaries}\n\n"
-        "Return format: [\"uuid1\", \"uuid2\"]"
+    routing_prompt = ROUTING_PROMPT.format(
+        query=query,
+        doc_summaries=doc_summaries,
     )
 
     response = client.chat.completions.create(
@@ -137,15 +137,10 @@ def _tier2_navigate_section(
         for i, s in enumerate(structures)
     )
 
-    # TODO: Move this prompt to the prompt file
-    nav_prompt = (
-        f"You are navigating the table of contents of '{doc.title}' to answer this question:\n\n"
-        f"QUESTION: {query}\n\n"
-        f"TOC:\n{toc_text}\n\n"
-        "Select the single MOST relevant TOC entry. Prefer the most specific (deepest level) "
-        "entry that covers the topic. Return ONLY a JSON object with keys 'index' (1-based) "
-        "and 'section_title'. No explanation.\n"
-        'Return format: {"index": 3, "section_title": "..."}'
+    nav_prompt = NAV_PROMPT.format(
+        doc_title=doc.title,
+        query=query,
+        toc_text=toc_text,
     )
 
     response = client.chat.completions.create(
@@ -173,90 +168,11 @@ def _tier2_navigate_section(
 
 
 # ---------------------------------------------------------------------------
-# Distillation (per-source summary for large extracts or multi-source)
-# ---------------------------------------------------------------------------
-
-
-def _rewrite_as_standalone(
-    query: str,
-    history: list[dict],
-    client: openai.OpenAI,
-) -> tuple[str, dict]:
-    """Rewrite a follow-up question into a standalone question using conversation history.
-
-    Returns (rewritten_query, token_info).
-    """
-    history_text = "\n".join(
-        f"{m['role'].capitalize()}: {m['content']}" for m in history
-    )
-    response = client.chat.completions.create(
-        model=Config.COMPLETION_MODEL,
-        messages=[
-            {"role": "system", "content": _REWRITE_PROMPT},
-            {
-                "role": "user",
-                "content": (
-                    f"Conversation history:\n{history_text}\n\n"
-                    f"Latest question: {query}"
-                ),
-            },
-        ],
-        temperature=0,
-        max_tokens=256,
-    )
-    rewritten = response.choices[0].message.content.strip()
-    usage = response.usage
-    token_info = {
-        "prompt_tokens": int(getattr(usage, "prompt_tokens", 0) or 0),
-        "completion_tokens": int(getattr(usage, "completion_tokens", 0) or 0),
-        "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
-    }
-    return rewritten or query, token_info
-
-
-def _distill_source(
-    query: str,
-    doc_title: str,
-    section_title: str,
-    raw_text: str,
-    client: openai.OpenAI,
-) -> tuple[str, dict[str, int]]:
-    if len(raw_text) > _DISTILL_MAX_INPUT_CHARS:
-        logger.warning(
-            "Distill input for '%s' truncated from %d to %d chars — add a TOC to avoid this",
-            doc_title, len(raw_text), _DISTILL_MAX_INPUT_CHARS,
-        )
-        raw_text = raw_text[:_DISTILL_MAX_INPUT_CHARS]
-    user_msg = (
-        f"Query: {query}\n\n"
-        f"Source: {doc_title} -- {section_title}\n\n"
-        f"Excerpt:\n{raw_text}"
-    )
-    response = client.chat.completions.create(
-        model=Config.COMPLETION_MODEL,
-        messages=[
-            {"role": "system", "content": DISTILL_PROMPT},
-            {"role": "user", "content": user_msg},
-        ],
-        temperature=0,
-        max_tokens=1024,
-    )
-    usage = response.usage
-    token_info = {
-        "prompt_tokens": int(getattr(usage, "prompt_tokens", 0) or 0),
-        "completion_tokens": int(getattr(usage, "completion_tokens", 0) or 0),
-        "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
-    }
-    return response.choices[0].message.content, token_info
-
-
-# ---------------------------------------------------------------------------
-# Core pipeline (shared by answer_question and answer_question_stream)
+# Core pipeline 
 # ---------------------------------------------------------------------------
 
 def _run_pipeline(
     query: str,
-    document_ids: list[str] | None,
     api_key: str | None,
     db: Session,
     session_id: str,
@@ -284,10 +200,10 @@ def _run_pipeline(
         effective_query = query
         if history:
             on_thinking("Checking conversation history...")
-            effective_query, rewrite_tokens = _rewrite_as_standalone(query, history, client)
+            effective_query, rewrite_tokens = _rewrite_with_history(query, history, client)
             if effective_query != query:
                 logger.info("[pipeline] Query rewritten: %r → %r", query, effective_query)
-                on_thinking("Rewriting question for context...")
+                on_thinking("Rewriting question with conversation history...")
 
         # Normalize and hash the (potentially rewritten) query for caching
         # Note if there isn't history the query is unchanged
@@ -382,7 +298,7 @@ def _run_pipeline(
         # -- Tier 1: Document routing -----------------------------------------
         on_thinking("Selecting relevant sources...")
         selected_docs = _tier1_route_documents(
-            effective_query, query_embedding, document_ids, client, db
+            effective_query, query_embedding, client, db
         )
 
         # If unable to find any relevant documents -- Early Exit
@@ -453,6 +369,7 @@ def _run_pipeline(
             for sd in source_data
         ]
 
+        # TODO I feel like there is a function that could be clear for this
         # If there's only one source, we can feed the full text to the LLM. 
         # If there are multiple sources, we distill each one first to avoid hitting token limits, then feed the briefs to the LLM for final synthesis.
         if len(source_data) == 1:
@@ -585,7 +502,6 @@ def _run_pipeline(
 
 async def answer_question(
     query: str,
-    document_ids: list[str] | None,
     api_key: str | None,
     db: Session,
     session_id: str,
@@ -620,7 +536,6 @@ async def answer_question(
         try:
             result = _run_pipeline(
                 query=query,
-                document_ids=document_ids,
                 api_key=api_key,
                 db=db,
                 session_id=session_id,

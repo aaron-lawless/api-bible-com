@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.config import Config
 from app.database import get_db
-from app.models import Document, DocumentPage, DocumentStructure
-from app.services.embedder import embed_text
+from app.models.database import Document, DocumentPage, DocumentStructure
+from app.services.llm.embedder import embed_text
 from app.services.extractor import build_toc_from_pages, extract_pages
 from app.services.scraper import scrape_url
 
