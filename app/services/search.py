@@ -477,9 +477,13 @@ def _run_pipeline(
     """
     client = create_openai_client(api_key)
     try:
-        # Load conversation history; rewrite follow-up questions into standalone form
+        # Load conversation history from sessions
         history = _load_history(session_id, db)
         rewrite_tokens: dict | None = None
+
+        # Rewriting the query based on conversation history (if applicable) 
+        # must happen before any cache checks, since the rewritten query may have a different cache key and embedding. 
+        # This ensures that follow-up questions can benefit from caching even if the original question was not a cache hit.
         effective_query = query
         if history:
             on_thinking("Checking conversation history...")
@@ -488,6 +492,8 @@ def _run_pipeline(
                 logger.info("[pipeline] Query rewritten: %r → %r", query, effective_query)
                 on_thinking("Rewriting question for context...")
 
+        # Normalize and hash the (potentially rewritten) query for caching
+        # Note if there isn't history the query is unchanged
         normalized_query = normalize_question(effective_query)
         question_hash = hashlib.sha256(normalized_query.encode()).hexdigest()
         verse_ref = (extract_verse_reference(effective_query) or [None])[0]
@@ -505,7 +511,7 @@ def _run_pipeline(
         ).scalar_one_or_none()
 
         if exact_row:
-            on_thinking("Found cached answer.")
+            on_thinking("Found previous answer.")
             _insert_cache_row(
                 db=db,
                 question_raw=query,
@@ -657,7 +663,7 @@ def _run_pipeline(
             page_count = sd["end_page"] - sd["start_page"] + 1
 
             if page_count > _DISTILL_THRESHOLD_PAGES or len(sd["raw_text"]) > _DISTILL_THRESHOLD_CHARS:
-                on_thinking(f"Distilling large extract from: {sd['doc'].title}")
+                on_thinking(f"Researching extract from: {sd['doc'].title}")
                 context_text, distill_usage = _distill_source(
                     effective_query, sd["doc"].title, sd["section_title"], sd["raw_text"], client
                 )
@@ -691,12 +697,12 @@ def _run_pipeline(
                 return sd, brief, usage
 
             # Distil in parallel to speed up processing of multiple large sources
-            # TODO: Could we lanch distillation tasks on a seprate pod or something? I am used to doing this on openshift but not sure how to do this on railway
+            # TODO: Could we launch distillation tasks on a separate pod or something? I am used to doing this on OpenShift but not sure how to do this on Railway
             with ThreadPoolExecutor(max_workers=min(len(source_data), 4)) as pool:
                 futures = {pool.submit(_distil, sd): sd for sd in source_data}
                 for future in as_completed(futures):
                     sd, brief, usage = future.result()
-                    on_thinking(f"Distilled research brief for: {sd['doc'].title}")
+                    on_thinking(f"Researching brief for: {sd['doc'].title}")
                     briefs[str(sd["doc"].document_id)] = brief
                     if usage["total_tokens"] > 0:
                         distill_tokens["calls"] += 1
