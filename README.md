@@ -1,57 +1,60 @@
-# AI Bible — RAG API
+# AI Bible - RAG API
 
-A document ingestion and semantic search API for Christian theological content. Accepts document uploads, chunks and embeds them using OpenAI, and answers natural language questions by retrieving relevant chunks and summarising with GPT-4o.
+A document ingestion and semantic search API for Christian theological content. Accepts PDF uploads or web article URLs, stores page-by-page text with a table of contents, and answers natural language questions using a two-tier hierarchical routing pipeline powered by GPT-4o.
 
 ## Tech Stack
 
-- **Backend**: Python 3.11, FastAPI, SQLAlchemy
+- **Backend**: Python 3.12, FastAPI, SQLAlchemy 2.0
 - **Database**: PostgreSQL with pgvector
 - **Embeddings**: `text-embedding-3-small` (1536 dimensions)
 - **Completions**: `gpt-4o`
-- **Text extraction**: pdfplumber (PDF), python-docx (DOCX)
+- **Text extraction**: pdfplumber (PDF), python-docx (DOCX), trafilatura (web URLs)
+- **Streaming**: sse-starlette (Server-Sent Events)
 - **Deployment**: Railway
+
+---
+
+## RAG Pipeline
+
+Questions are answered through a two-tier hierarchical routing pipeline. Each tier uses GPT-4o to make a routing decision before any text is read.
+
+### Tier 1 - Document Router
+
+The query is embedded and compared against all document `summary_embedding` vectors via cosine similarity. The top candidates are passed to GPT-4o, which selects the document IDs most likely to contain a relevant answer. If specific `document_ids` are provided in the request, Tier 1 is skipped.
+
+### Tier 2 - Section Navigator
+
+For each selected document, GPT-4o is shown the table of contents (section titles and page ranges) and picks the single most relevant section. If no TOC has been added for a document, the full page range is used.
+
+### Page Extraction + Synthesis
+
+The raw text for the chosen page range is fetched from `document_pages`. For large extracts (>15 pages) or multiple sources, GPT-4o first writes a focused research brief per source, then synthesises a final answer across all briefs.
+
+### SSE Streaming
+
+`GET /search/stream` streams each pipeline stage as a Server-Sent Event so the UI can display live progress ("Selecting relevant sources...", "Navigating table of contents for: ...", etc.) before the final answer arrives.
 
 ---
 
 ## Query Caching
 
-Every question passes through three layers before hitting the AI. This minimises API costs and latency for repeated or similar questions.
+Every question passes through two cache layers before running the full pipeline.
 
-### Step 1 — Exact Match (zero API calls)
+### Step 1 - Exact Match (zero API calls)
 
-The question is normalised (lowercased, stopwords removed, lemmatized) and hashed with SHA-256. If the same normalised hash exists in `query_cache` from a previous non-cached answer, the stored response and sources are returned immediately.
+The question is normalised (lowercased, stop words removed, lemmatized via spaCy) and hashed with SHA-256. If the same hash exists from a previous non-cached answer, the stored response is returned immediately.
 
-**Example:**
-- Previously asked: *"What does Paul say about grace?"*
-- Asked again: *"What does Paul say about grace?"*
-- Both normalise to `paul say grace` → same hash → instant return, no API call.
+### Step 2 - Vector Match (1 embedding call, no completion call)
 
----
+If no exact match is found, the question is embedded and compared via cosine similarity against previous answers. If the closest match scores above **0.85**, the existing response is reused.
 
-### Step 2 — Vector Match (1 embedding call, no completion call)
+### Step 3 - Full Pipeline
 
-If no exact hash match is found, the question is embedded and compared via cosine similarity against all previous non-cache-hit rows. If the closest match scores above **0.92**, the existing response and sources are reused.
-
-**Example:**
-- Previously asked: *"What does Paul say about grace?"*
-- Now asked: *"What did Paul write about God's grace?"*
-- Different hash (Step 1 misses) → embedding generated → similarity = 0.95 → response reused, logged as a vector cache hit.
-
----
-
-### Step 3 — Full RAG (embedding + chunk search + GPT completion)
-
-If no cache hit is found, the full pipeline runs: relevant document chunks are retrieved via vector search, GPT-4o generates an answer grounded in those chunks, and the result is stored for future reuse.
-
-**Example:**
-- Asked: *"How does the Gospel of John describe the Holy Spirit?"*
-- No hash match, no similar previous question → chunks retrieved, GPT generates answer → stored as a fresh row.
-
----
+If no cache hit is found, the full Tier 1 -> Tier 2 -> extract -> synthesise pipeline runs and the result is stored for future reuse.
 
 ### Cache Record
 
-Each query (hit or miss) is recorded in `query_cache` with:
+Each query is recorded in `query_cache` with:
 
 | Field | Description |
 |---|---|
@@ -60,13 +63,14 @@ Each query (hit or miss) is recorded in `query_cache` with:
 | `question_hash` | SHA-256 of the normalised question |
 | `embedding` | Vector embedding of the normalised question |
 | `response` | The answer returned to the user |
-| `sources` | Deduplicated list of `{document_id, title, author}` |
+| `sources` | List of `{document_id, title, author, source, section_title, pages}` |
 | `cache_hit` | Whether this was served from cache |
 | `cache_hit_type` | `"exact"`, `"vector"`, or `null` |
-| `cache_source_id` | ID of the originating row (for hits) |
+| `cache_source_id` | ID of the originating row (for cache hits) |
 | `similarity_score` | Cosine similarity (vector hits only) |
 | `token_information` | Embedding and/or completion token counts |
 | `session_id` | Client session identifier |
+| `verse_reference` | Canonical verse e.g. `"romans 8:1-2"`, null for general questions |
 
 **Example `sources` value:**
 ```json
@@ -74,12 +78,10 @@ Each query (hit or miss) is recorded in `query_cache` with:
   {
     "document_id": "a3f1c2d4-8b5e-4f2a-9c1d-7e6f3a2b1c0d",
     "title": "Systematic Theology",
-    "author": "Wayne Grudem"
-  },
-  {
-    "document_id": "b7e2d1f3-4a6c-4e8b-8d2e-1f9a3c7b5d2e",
-    "title": "The Case for Christ",
-    "author": "Lee Strobel"
+    "author": "Wayne Grudem",
+    "source": null,
+    "section_title": "Chapter 24: Justification",
+    "pages": "512-534"
   }
 ]
 ```
@@ -92,9 +94,24 @@ Each query (hit or miss) is recorded in `query_cache` with:
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/search` | Ask a question. Returns an answer and sources. Hits cache or calls GPT-4o. |
+| `POST` | `/search` | Ask a question. Returns an answer and sources. Hits cache or runs the full pipeline. |
+| `GET` | `/search/stream` | Same as POST /search but streams pipeline progress via Server-Sent Events. |
 | `GET` | `/questions` | Paginated list of previously answered questions. |
 | `GET` | `/questions/{query_id}` | Retrieve the full answer for a specific question by ID. No API call made. |
+
+**`POST /search` body:**
+
+| Field | Required | Description |
+|---|---|---|
+| `query` | Yes | The question to answer |
+| `document_ids` | No | Array of UUIDs to restrict search to specific documents |
+
+**`GET /search/stream` query parameters:**
+
+| Parameter | Required | Description |
+|---|---|---|
+| `query` | Yes | The question to answer |
+| `document_ids` | No | One or more UUIDs to restrict search to specific documents |
 
 **`GET /questions` query parameters:**
 
@@ -102,7 +119,7 @@ Each query (hit or miss) is recorded in `query_cache` with:
 |---|---|---|
 | `page` | `1` | Page number |
 | `page_size` | `20` | Results per page (max 100) |
-| `search` | — | Optional case-insensitive text filter on the question |
+| `search` | - | Optional case-insensitive text filter on the question |
 
 ---
 
@@ -111,8 +128,21 @@ Each query (hit or miss) is recorded in `query_cache` with:
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/documents` | List all ingested documents (newest first). |
-| `GET` | `/documents/{doc_id}` | Get a document and its chunk count. |
-| `DELETE` | `/documents/{doc_id}` | Delete a document and all its chunks. |
+| `GET` | `/documents/{doc_id}` | Get a document and its structure count. |
+| `DELETE` | `/documents/{doc_id}` | Delete a document and all its pages and TOC entries. |
+| `GET` | `/documents/{doc_id}/structures` | List all TOC entries for a document, ordered by start page. |
+| `POST` | `/documents/{doc_id}/structures` | Add a TOC entry to a document. |
+| `PUT` | `/documents/{doc_id}/structures/{struct_id}` | Update a TOC entry. |
+| `DELETE` | `/documents/{doc_id}/structures/{struct_id}` | Delete a TOC entry. |
+
+**`POST /documents/{doc_id}/structures` body:**
+
+| Field | Required | Description |
+|---|---|---|
+| `section_title` | Yes | e.g. "Chapter 3: The Holy Spirit" |
+| `start_page` | Yes | 1-based start page (inclusive) |
+| `end_page` | Yes | 1-based end page (inclusive, must be >= start_page) |
+| `level` | No | Hierarchy depth: 1 = chapter, 2 = subsection (default: 1) |
 
 ---
 
@@ -120,19 +150,30 @@ Each query (hit or miss) is recorded in `query_cache` with:
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/ingest` | Upload a PDF, DOCX, or TXT file to chunk, embed, and store. |
+| `POST` | `/ingest/pdf` | Upload a PDF, DOCX, or TXT file. Pages are stored individually. |
+| `POST` | `/ingest/url` | Scrape a web article URL and store its text as a single page. |
 
-**`POST /ingest` form fields:**
+**`POST /ingest/pdf` form fields:**
 
 | Field | Required | Description |
 |---|---|---|
-| `file` | Yes | The document file (PDF, DOCX, TXT) |
+| `file` | Yes | The document file (PDF, DOCX, or TXT) |
 | `title` | Yes | Document title |
+| `summary` | Yes | Short summary used for Tier 1 vector routing |
 | `author` | No | Author name |
-| `isbn` | No | ISBN |
 | `date_published` | No | Publication date (YYYY-MM-DD) |
-| `description` | No | Short description |
-| `source` | No | Source URL or reference |
+| `focus_area` | No | e.g. "Pauline epistles", "Eschatology" |
+
+**`POST /ingest/url` form fields:**
+
+| Field | Required | Description |
+|---|---|---|
+| `url` | Yes | The web article URL to scrape |
+| `title` | Yes | Document title |
+| `summary` | Yes | Short summary used for Tier 1 vector routing |
+| `author` | No | Author name |
+| `date_published` | No | Publication date (YYYY-MM-DD) |
+| `focus_area` | No | e.g. "Pauline epistles", "Eschatology" |
 
 ---
 
@@ -162,3 +203,4 @@ Set the following environment variables (or use a `.env` file):
 OPENAI_API_KEY=...
 DATABASE_URL=postgresql://...
 ```
+

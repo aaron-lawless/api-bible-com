@@ -7,10 +7,8 @@ sqlalchemy==2.0.30
 alembic==1.13.2
 psycopg2-binary==2.9.9
 openai==1.30.5
-pdfplumber==0.11.2
+pymupdf4llm
 python-docx==1.1.2
-tiktoken==0.7.0
-langchain-text-splitters==0.2.2
 tenacity==8.3.0
 python-dotenv==1.0.1
 gunicorn==22.0.0
@@ -19,3 +17,5 @@ pgvector==0.3.6
 pytest==8.2.2
 railway==0.0.4
 spacy==3.8.14
+trafilatura==1.12.2
+sse-starlette==2.1.3

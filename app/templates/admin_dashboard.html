@@ -10,6 +10,379 @@
 </head>
 <body>
   <div class="app-shell">
+    <main class="main">
+      <div class="admin-header">
+        <h1>📖 Document Manager</h1>
+        <div style="display:flex; gap:0.5rem;">
+          <a href="/" class="btn btn-ghost btn-sm">← Back to Search</a>
+          <a href="/admin/logout" class="btn btn-ghost btn-sm">Sign out</a>
+        </div>
+      </div>
+
+      <div class="admin-content">
+        <div class="admin-grid">
+
+          <!-- Ingest column -->
+          <div style="display:flex; flex-direction:column; gap:1rem;">
+
+            <!-- PDF upload card -->
+            <div class="card">
+              <h2>Upload PDF / DOCX / TXT</h2>
+              <div id="pdf-alert" style="display:none;"></div>
+              <form id="pdf-form">
+                <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+                  <svg width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  <p id="drop-label">Drop a file here or click to browse</p>
+                  <p style="font-size:0.76rem; margin-top:0.25rem;">PDF, DOCX, TXT</p>
+                  <input type="file" id="file-input" name="file" accept=".pdf,.docx,.txt" />
+                </div>
+                <div class="progress-wrap" id="pdf-progress-wrap">
+                  <div class="progress-bar" id="pdf-progress-bar"></div>
+                </div>
+                <div class="form-group"><label>Title *</label><input type="text" name="title" placeholder="Document title" required /></div>
+                <div class="form-group"><label>Author</label><input type="text" name="author" placeholder="Author name" /></div>
+                <div class="form-group"><label>Date Published</label><input type="date" name="date_published" /></div>
+                <div class="form-group"><label>Summary * <span style="font-weight:400;font-size:0.78rem;color:var(--text-muted)">(used by AI to select this source)</span></label><textarea name="summary" rows="3" placeholder="A concise description of this document's scope, author perspective, and content focus." required style="width:100%;resize:vertical;"></textarea></div>
+                <div class="form-group"><label>Focus Area</label><input type="text" name="focus_area" placeholder="e.g. Linguistic/Exegesis, Homiletical" /></div>
+                <button type="submit" class="btn btn-primary" id="pdf-btn">Upload &amp; Ingest</button>
+              </form>
+            </div>
+
+            <!-- URL ingest card -->
+            <div class="card">
+              <h2>Ingest Web Article</h2>
+              <div id="url-alert" style="display:none;"></div>
+              <form id="url-form">
+                <div class="form-group"><label>URL *</label><input type="url" name="url" placeholder="https://example.com/article" required /></div>
+                <div class="form-group"><label>Title *</label><input type="text" name="title" placeholder="Article title" required /></div>
+                <div class="form-group"><label>Author</label><input type="text" name="author" /></div>
+                <div class="form-group"><label>Date Published</label><input type="date" name="date_published" /></div>
+                <div class="form-group"><label>Summary * <span style="font-weight:400;font-size:0.78rem;color:var(--text-muted)">(used by AI to select this source)</span></label><textarea name="summary" rows="3" placeholder="A concise description of this article's scope and perspective." required style="width:100%;resize:vertical;"></textarea></div>
+                <div class="form-group"><label>Focus Area</label><input type="text" name="focus_area" placeholder="e.g. Apologetics, Devotional" /></div>
+                <button type="submit" class="btn btn-primary" id="url-btn">Scrape &amp; Ingest</button>
+              </form>
+            </div>
+
+          </div>
+
+          <!-- Documents list card -->
+          <div class="card">
+            <h2>
+              Uploaded Documents
+              <span id="doc-count" style="font-weight:400; color:var(--text-muted); font-size:0.82rem; margin-left:0.4rem;"></span>
+            </h2>
+            <ul class="doc-list" id="doc-list">
+              <li style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0.75rem;"><span class="spinner"></span></li>
+            </ul>
+          </div>
+
+        </div>
+
+        <!-- TOC management panel (shown when a doc is selected) -->
+        <div id="toc-panel" style="display:none; margin-top:1.5rem;">
+          <div class="card">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1rem;">
+              <h2 style="margin:0;">Table of Contents — <span id="toc-doc-title" style="font-weight:400;"></span></h2>
+              <button class="btn btn-ghost btn-sm" onclick="closeToc()">✕ Close</button>
+            </div>
+            <div id="toc-alert" style="display:none; margin-bottom:0.75rem;"></div>
+
+            <!-- Add entry form -->
+            <form id="toc-form" style="display:grid; grid-template-columns:1fr 80px 80px 80px auto; gap:0.5rem; align-items:end; margin-bottom:1rem;">
+              <div class="form-group" style="margin:0;"><label style="font-size:0.78rem;">Section Title</label><input type="text" id="toc-section-title" placeholder="e.g. Chapter 3 — The Fall" required /></div>
+              <div class="form-group" style="margin:0;"><label style="font-size:0.78rem;">Start</label><input type="number" id="toc-start" min="1" placeholder="1" required /></div>
+              <div class="form-group" style="margin:0;"><label style="font-size:0.78rem;">End</label><input type="number" id="toc-end" min="1" placeholder="10" required /></div>
+              <div class="form-group" style="margin:0;"><label style="font-size:0.78rem;">Level</label><input type="number" id="toc-level" min="1" max="5" value="1" /></div>
+              <button type="submit" class="btn btn-primary btn-sm" style="margin-top:1.25rem;">Add</button>
+            </form>
+
+            <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+              <thead>
+                <tr style="border-bottom:1px solid var(--border); text-align:left;">
+                  <th style="padding:0.4rem 0.5rem;">Section Title</th>
+                  <th style="padding:0.4rem 0.5rem; width:60px;">Start</th>
+                  <th style="padding:0.4rem 0.5rem; width:60px;">End</th>
+                  <th style="padding:0.4rem 0.5rem; width:55px;">Level</th>
+                  <th style="padding:0.4rem 0.5rem; width:70px;"></th>
+                </tr>
+              </thead>
+              <tbody id="toc-tbody">
+                <tr><td colspan="5" style="padding:0.75rem 0.5rem; color:var(--text-muted);">No TOC entries yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <script>
+    let _tocDocId = null;
+
+    function escapeHtml(s) {
+      if (s == null) return '';
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function showAlert(id, msg, type) {
+      const box = document.getElementById(id);
+      box.className = `alert alert-${type}`;
+      box.textContent = msg;
+      box.style.display = 'block';
+      setTimeout(() => { box.style.display = 'none'; }, 6000);
+    }
+
+    /* ── Drag & drop ── */
+    const dropZone  = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const dropLabel = document.getElementById('drop-label');
+
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files[0]) dropLabel.textContent = fileInput.files[0].name;
+    });
+    dropZone.addEventListener('dragover',  (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+    dropZone.addEventListener('dragleave', ()  => dropZone.classList.remove('drag-over'));
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('drag-over');
+      const file = e.dataTransfer.files[0];
+      if (file) {
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        fileInput.files = dt.files;
+        dropLabel.textContent = file.name;
+      }
+    });
+
+    /* ── PDF upload ── */
+    document.getElementById('pdf-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn  = document.getElementById('pdf-btn');
+      const prog = document.getElementById('pdf-progress-wrap');
+      const bar  = document.getElementById('pdf-progress-bar');
+
+      if (!fileInput.files[0]) { showAlert('pdf-alert', 'Please select a file.', 'error'); return; }
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Ingesting…';
+      prog.style.display = 'block';
+
+      let pct = 0;
+      const ticker = setInterval(() => {
+        pct = Math.min(pct + Math.random() * 8, 88);
+        bar.style.width = pct + '%';
+      }, 400);
+
+      const formData = new FormData(e.target);
+      formData.set('file', fileInput.files[0]);
+
+      try {
+        const resp = await fetch('/ingest/pdf', { method: 'POST', body: formData });
+        const data = await resp.json();
+        clearInterval(ticker);
+        bar.style.width = '100%';
+        if (resp.ok) {
+          showAlert('pdf-alert', `✓ Ingested "${escapeHtml(data.title)}" — ${data.total_pages} pages`, 'success');
+          e.target.reset();
+          dropLabel.textContent = 'Drop a file here or click to browse';
+          loadDocuments();
+        } else {
+          showAlert('pdf-alert', `Error: ${data.detail || data.error}`, 'error');
+        }
+      } catch (err) {
+        clearInterval(ticker);
+        showAlert('pdf-alert', `Network error: ${err.message}`, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Upload & Ingest';
+        setTimeout(() => { prog.style.display = 'none'; bar.style.width = '0%'; }, 800);
+      }
+    });
+
+    /* ── URL ingest ── */
+    document.getElementById('url-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('url-btn');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Scraping…';
+
+      const formData = new FormData(e.target);
+
+      try {
+        const resp = await fetch('/ingest/url', { method: 'POST', body: formData });
+        const data = await resp.json();
+        if (resp.ok) {
+          showAlert('url-alert', `✓ Ingested "${escapeHtml(data.title)}"`, 'success');
+          e.target.reset();
+          loadDocuments();
+        } else {
+          showAlert('url-alert', `Error: ${data.detail || data.error}`, 'error');
+        }
+      } catch (err) {
+        showAlert('url-alert', `Network error: ${err.message}`, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Scrape & Ingest';
+      }
+    });
+
+    /* ── Document list ── */
+    async function loadDocuments() {
+      const list = document.getElementById('doc-list');
+      try {
+        const resp = await fetch('/documents');
+        const docs = await resp.json();
+        document.getElementById('doc-count').textContent = `(${docs.length})`;
+        if (!docs.length) {
+          list.innerHTML = '<li style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0.75rem;">No documents yet.</li>';
+          return;
+        }
+        list.innerHTML = docs.map(doc => `
+          <li class="doc-item" data-id="${escapeHtml(doc.document_id)}">
+            <div class="doc-item-info">
+              <div class="doc-item-title">${escapeHtml(doc.title)}</div>
+              <div class="doc-item-meta">
+                ${escapeHtml(doc.author || '—')}
+                ${doc.date_published ? ' · ' + escapeHtml(doc.date_published) : ''}
+                · ${doc.total_pages} page${doc.total_pages === 1 ? '' : 's'}
+              </div>
+            </div>
+            <div class="doc-item-actions">
+              <button class="btn btn-ghost btn-sm" onclick="openToc('${escapeHtml(doc.document_id)}', '${escapeHtml(doc.title).replace(/'/g,"\\'")}')">TOC</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteDoc('${escapeHtml(doc.document_id)}', this)">Delete</button>
+            </div>
+          </li>
+        `).join('');
+      } catch {
+        list.innerHTML = '<li style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0.75rem;">Failed to load documents.</li>';
+      }
+    }
+
+    async function deleteDoc(id, btn) {
+      if (!confirm('Delete this document and all its pages and TOC entries?')) return;
+      btn.disabled = true;
+      btn.textContent = '…';
+      try {
+        const resp = await fetch(`/documents/${id}`, { method: 'DELETE' });
+        if (resp.ok) {
+          document.querySelector(`[data-id="${id}"]`)?.remove();
+          const remaining = document.querySelectorAll('#doc-list .doc-item').length;
+          document.getElementById('doc-count').textContent = `(${remaining})`;
+          if (!remaining) {
+            document.getElementById('doc-list').innerHTML =
+              '<li style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0.75rem;">No documents yet.</li>';
+          }
+          if (_tocDocId === id) closeToc();
+        } else {
+          const d = await resp.json();
+          alert(`Delete failed: ${d.detail || d.error}`);
+          btn.disabled = false;
+          btn.textContent = 'Delete';
+        }
+      } catch (err) {
+        alert(`Network error: ${err.message}`);
+        btn.disabled = false;
+        btn.textContent = 'Delete';
+      }
+    }
+
+    /* ── TOC panel ── */
+    async function openToc(docId, docTitle) {
+      _tocDocId = docId;
+      document.getElementById('toc-doc-title').textContent = docTitle;
+      document.getElementById('toc-panel').style.display = 'block';
+      document.getElementById('toc-panel').scrollIntoView({ behavior: 'smooth' });
+      await loadToc();
+    }
+
+    function closeToc() {
+      _tocDocId = null;
+      document.getElementById('toc-panel').style.display = 'none';
+    }
+
+    async function loadToc() {
+      if (!_tocDocId) return;
+      const tbody = document.getElementById('toc-tbody');
+      tbody.innerHTML = '<tr><td colspan="5" style="padding:0.5rem; color:var(--text-muted);">Loading…</td></tr>';
+      try {
+        const resp = await fetch(`/documents/${_tocDocId}/structures`);
+        const rows = await resp.json();
+        if (!rows.length) {
+          tbody.innerHTML = '<tr><td colspan="5" style="padding:0.75rem 0.5rem; color:var(--text-muted);">No TOC entries yet.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = rows.map(r => `
+          <tr data-struct-id="${escapeHtml(r.id)}" style="border-bottom:1px solid var(--border);">
+            <td style="padding:0.4rem 0.5rem;">${escapeHtml(r.section_title)}</td>
+            <td style="padding:0.4rem 0.5rem;">${r.start_page}</td>
+            <td style="padding:0.4rem 0.5rem;">${r.end_page}</td>
+            <td style="padding:0.4rem 0.5rem;">${r.level}</td>
+            <td style="padding:0.4rem 0.5rem; text-align:right;">
+              <button class="btn btn-danger btn-sm" onclick="deleteStructure('${escapeHtml(r.id)}', this)">✕</button>
+            </td>
+          </tr>
+        `).join('');
+      } catch {
+        tbody.innerHTML = '<tr><td colspan="5" style="padding:0.5rem; color:var(--text-muted);">Failed to load.</td></tr>';
+      }
+    }
+
+    document.getElementById('toc-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!_tocDocId) return;
+      const body = {
+        section_title: document.getElementById('toc-section-title').value.trim(),
+        start_page: parseInt(document.getElementById('toc-start').value, 10),
+        end_page: parseInt(document.getElementById('toc-end').value, 10),
+        level: parseInt(document.getElementById('toc-level').value, 10) || 1,
+      };
+      try {
+        const resp = await fetch(`/documents/${_tocDocId}/structures`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+          document.getElementById('toc-section-title').value = '';
+          document.getElementById('toc-start').value = '';
+          document.getElementById('toc-end').value = '';
+          document.getElementById('toc-level').value = '1';
+          await loadToc();
+        } else {
+          showAlert('toc-alert', `Error: ${data.detail || data.error}`, 'error');
+        }
+      } catch (err) {
+        showAlert('toc-alert', `Network error: ${err.message}`, 'error');
+      }
+    });
+
+    async function deleteStructure(structId, btn) {
+      if (!_tocDocId) return;
+      btn.disabled = true;
+      try {
+        const resp = await fetch(`/documents/${_tocDocId}/structures/${structId}`, { method: 'DELETE' });
+        if (resp.ok) {
+          document.querySelector(`[data-struct-id="${structId}"]`)?.remove();
+        } else {
+          const d = await resp.json();
+          showAlert('toc-alert', `Delete failed: ${d.detail || d.error}`, 'error');
+          btn.disabled = false;
+        }
+      } catch (err) {
+        showAlert('toc-alert', `Network error: ${err.message}`, 'error');
+        btn.disabled = false;
+      }
+    }
+
+    loadDocuments();
+  </script>
+</body>
+</html>
+
+<body>
+  <div class="app-shell">
 
     <!-- Main (no sidebar) -->
     <main class="main">

@@ -22,11 +22,9 @@ def _resolve_mode() -> Mode:
 
 
 def _resolve_database_uri(mode: Mode) -> str:
-    if mode == Mode.LOCAL:
-        return "sqlite:///aibible-dev.db"
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
-        raise ValueError(f"DATABASE_URL is required when MODE={mode.value}")
+        raise ValueError("DATABASE_URL environment variable is required")
     return database_url
 
 
@@ -51,3 +49,5 @@ class Config:
     EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
     MAX_CONTENT_LENGTH = int(os.environ.get("MAX_CONTENT_LENGTH", 52428800))
     ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+    SCRAPER_TIMEOUT = int(os.environ.get("SCRAPER_TIMEOUT", 30))
+    TIER1_PREFILTER_TOP_K = int(os.environ.get("TIER1_PREFILTER_TOP_K", 20))

@@ -86,11 +86,5 @@ def create_app() -> FastAPI:
     def health() -> dict:
         return {"status": "ok"}
 
-    # Auto-create tables for local SQLite dev
-    if Config.SQLALCHEMY_DATABASE_URI.startswith("sqlite:///"):
-        from app.database import Base, engine
-
-        Base.metadata.create_all(bind=engine)
-
     return app
 

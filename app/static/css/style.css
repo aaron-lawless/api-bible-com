@@ -472,6 +472,48 @@ a { color: inherit; text-decoration: none; }
   40%           { transform: translateY(-6px); }
 }
 
+/* ── Thinking / pipeline steps ── */
+.thinking-live {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.thinking-step {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.thinking-log {
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.thinking-log summary {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  background: var(--bg-surface);
+  list-style: none;
+}
+
+.thinking-log summary:hover { color: var(--text); }
+
+.thinking-log .thinking-steps {
+  padding: 0.5rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  border-top: 1px solid var(--border);
+}
+
 /* ── Admin dashboard ── */
 .admin-header {
   padding: 1.25rem 1.5rem;

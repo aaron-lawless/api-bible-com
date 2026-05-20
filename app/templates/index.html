@@ -98,42 +98,78 @@
       input.style.height = 'auto';
       sendBtn.disabled = true;
 
-      const typingBubble = appendTyping();
+      const aiBubble = appendTyping();
+      const thinkingLines = [];
 
-      try {
-        const resp = await fetch('/search', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query, top_k: 10 }),
-        });
-        const data = await resp.json();
+      const url = '/search/stream?query=' + encodeURIComponent(query);
+      const es = new EventSource(url);
 
-        if (resp.ok) {
-          let html = `<div class="md-body">${marked.parse(data.answer || '')}</div>`;
+      es.addEventListener('thinking', (e) => {
+        const { message } = JSON.parse(e.data);
+        thinkingLines.push(message);
+        // Render live thinking inside the bubble while waiting
+        aiBubble.innerHTML =
+          '<div class="thinking-live">' +
+          thinkingLines.map(m => `<div class="thinking-step">⟳ ${escapeHtml(m)}</div>`).join('') +
+          '</div>';
+        chatArea.scrollTop = chatArea.scrollHeight;
+      });
 
-          if (data.sources && data.sources.length > 0) {
-            html += `<div class="sources">
-              <div class="sources-title">Sources</div>
-              <div>`;
-            for (const src of data.sources) {
-              const label = escapeHtml(src.title || 'Unknown') + (src.author ? ' · ' + escapeHtml(src.author) : '');
-              const tooltip = src.source ? escapeHtml(src.source) : '';
-              html += `<span class="source-chip" title="${tooltip}">
-                <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                ${label}
-              </span>`;
-            }
-            html += `</div></div>`;
-          }
-          typingBubble.innerHTML = html;
-        } else {
-          typingBubble.innerHTML = `<span style="color:#fca5a5">Error: ${escapeHtml(data.error)}</span>`;
+      es.addEventListener('answer', (e) => {
+        es.close();
+        const { text, sources } = JSON.parse(e.data);
+
+        let html = '';
+
+        // Collapsible thinking log
+        if (thinkingLines.length > 0) {
+          html += `<details class="thinking-log">
+            <summary>Show thinking (${thinkingLines.length} steps)</summary>
+            <div class="thinking-steps">` +
+            thinkingLines.map(m => `<div class="thinking-step">⟳ ${escapeHtml(m)}</div>`).join('') +
+            `</div></details>`;
         }
-      } catch (err) {
-        typingBubble.innerHTML = `<span style="color:#fca5a5">Network error: ${escapeHtml(err.message)}</span>`;
-      }
 
-      chatArea.scrollTop = chatArea.scrollHeight;
+        html += `<div class="md-body">${marked.parse(text || '')}</div>`;
+
+        if (sources && sources.length > 0) {
+          html += `<div class="sources"><div class="sources-title">Sources</div><div>`;
+          for (const src of sources) {
+            const label = escapeHtml(src.title || 'Unknown') +
+              (src.author ? ' · ' + escapeHtml(src.author) : '') +
+              (src.section_title ? ' · ' + escapeHtml(src.section_title) : '') +
+              (src.pages ? ' · pp. ' + escapeHtml(src.pages) : '');
+            const tooltip = src.source ? escapeHtml(src.source) : '';
+            html += `<span class="source-chip" title="${tooltip}">
+              <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              ${label}
+            </span>`;
+          }
+          html += `</div></div>`;
+        }
+
+        aiBubble.innerHTML = html;
+        chatArea.scrollTop = chatArea.scrollHeight;
+        sendBtn.disabled = !input.value.trim();
+      });
+
+      es.addEventListener('error', (e) => {
+        es.close();
+        let msg = 'An error occurred.';
+        try { msg = JSON.parse(e.data).message; } catch (_) {}
+        aiBubble.innerHTML = `<span style="color:#fca5a5">Error: ${escapeHtml(msg)}</span>`;
+        chatArea.scrollTop = chatArea.scrollHeight;
+        sendBtn.disabled = !input.value.trim();
+      });
+
+      // Native EventSource onerror (connection failure)
+      es.onerror = () => {
+        if (es.readyState === EventSource.CLOSED) return; // already handled
+        es.close();
+        aiBubble.innerHTML = `<span style="color:#fca5a5">Connection error. Please try again.</span>`;
+        chatArea.scrollTop = chatArea.scrollHeight;
+        sendBtn.disabled = !input.value.trim();
+      };
     }
   </script>
 </body>
