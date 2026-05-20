@@ -4,6 +4,7 @@ import logging
 import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from typing import AsyncGenerator
 
 import openai
@@ -11,7 +12,7 @@ import spacy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Document, DocumentStructure, DocumentPage, QueryCache
+from app.models import Document, DocumentStructure, DocumentPage, QueryCache, ConversationSession
 from app.services.openai_client import create_openai_client
 from app.config import Config
 
@@ -340,6 +341,81 @@ def _extract_page_text(
 # Prevents 429s when a section is very large. Add a TOC to avoid hitting this limit.
 _DISTILL_MAX_INPUT_CHARS = 80_000
 
+# Number of prior conversation turns (user + assistant pairs) to include in context
+_HISTORY_WINDOW = 3
+
+_REWRITE_PROMPT = """You are a query rewriter for a theological Q&A system.
+
+Given the conversation history and the latest user question, rewrite the latest question \
+as a fully self-contained, standalone question that can be understood without any prior context.
+
+If the question is already self-contained and unambiguous, return it unchanged.
+Return ONLY the rewritten question — no explanation, no quotes."""
+
+
+def _rewrite_as_standalone(
+    query: str,
+    history: list[dict],
+    client: openai.OpenAI,
+) -> tuple[str, dict]:
+    """Rewrite a follow-up question into a standalone question using conversation history.
+
+    Returns (rewritten_query, token_info).
+    """
+    history_text = "\n".join(
+        f"{m['role'].capitalize()}: {m['content']}" for m in history
+    )
+    response = client.chat.completions.create(
+        model=Config.COMPLETION_MODEL,
+        messages=[
+            {"role": "system", "content": _REWRITE_PROMPT},
+            {
+                "role": "user",
+                "content": (
+                    f"Conversation history:\n{history_text}\n\n"
+                    f"Latest question: {query}"
+                ),
+            },
+        ],
+        temperature=0,
+        max_tokens=256,
+    )
+    rewritten = response.choices[0].message.content.strip()
+    usage = response.usage
+    token_info = {
+        "prompt_tokens": int(getattr(usage, "prompt_tokens", 0) or 0),
+        "completion_tokens": int(getattr(usage, "completion_tokens", 0) or 0),
+        "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
+    }
+    return rewritten or query, token_info
+
+
+def _load_history(session_id: str, db: Session) -> list[dict]:
+    """Return the last _HISTORY_WINDOW turn-pairs as a flat [{role, content}] list."""
+    session = db.get(ConversationSession, session_id)
+    if not session or not session.messages:
+        return []
+    return list(session.messages[-(_HISTORY_WINDOW * 2):])
+
+
+def _append_history(
+    session_id: str,
+    user_content: str,
+    assistant_content: str,
+    db: Session,
+) -> None:
+    """Append a user+assistant turn to the session's conversation history."""
+    session = db.get(ConversationSession, session_id)
+    if session is None:
+        session = ConversationSession(session_id=session_id, messages=[])
+        db.add(session)
+    messages = list(session.messages or [])
+    messages.append({"role": "user", "content": user_content})
+    messages.append({"role": "assistant", "content": assistant_content})
+    session.messages = messages
+    session.updated_at = datetime.now(timezone.utc)
+    db.commit()
+
 
 def _distill_source(
     query: str,
@@ -401,15 +477,26 @@ def _run_pipeline(
     """
     client = create_openai_client(api_key)
     try:
-        normalized_query = normalize_question(query)
+        # Load conversation history; rewrite follow-up questions into standalone form
+        history = _load_history(session_id, db)
+        rewrite_tokens: dict | None = None
+        effective_query = query
+        if history:
+            on_thinking("Checking conversation history...")
+            effective_query, rewrite_tokens = _rewrite_as_standalone(query, history, client)
+            if effective_query != query:
+                logger.info("[pipeline] Query rewritten: %r → %r", query, effective_query)
+                on_thinking("Rewriting question for context...")
+
+        normalized_query = normalize_question(effective_query)
         question_hash = hashlib.sha256(normalized_query.encode()).hexdigest()
-        verse_ref = (extract_verse_reference(query) or [None])[0]
+        verse_ref = (extract_verse_reference(effective_query) or [None])[0]
 
         # Option 1: Cache hit -- return cached answer without running pipeline (Fast and Cheapest)
         # Question hash matches exactly with a previous query that had no cache hit (i.e. was not previously served from cache)
 
         # -- Cache check -----------------------------------------------------
-        on_thinking("Thainking...")
+        on_thinking("Thinking...")
 
         exact_row = db.execute(
             select(QueryCache)
@@ -433,6 +520,7 @@ def _run_pipeline(
                 session_id=session_id,
                 verse_reference=verse_ref,
             )
+            _append_history(session_id, query, exact_row.response, db)
             return {"answer": exact_row.response, "sources": exact_row.sources or []}
 
         # Option 2: Checking for semantically similar cached questions asked using vector search (Fast and Cheaper than full pipeline)
@@ -483,6 +571,7 @@ def _run_pipeline(
                     session_id=session_id,
                     verse_reference=verse_ref,
                 )
+                _append_history(session_id, query, cached.response, db)
                 return {"answer": cached.response, "sources": cached.sources or []}
 
         # Option 3: No cache hit -- run full pipeline (Slowest and Most Expensive)
@@ -490,7 +579,7 @@ def _run_pipeline(
         # -- Tier 1: Document routing -----------------------------------------
         on_thinking("Selecting relevant sources...")
         selected_docs = _tier1_route_documents(
-            query, query_embedding, document_ids, client, db
+            effective_query, query_embedding, document_ids, client, db
         )
 
         # If unable to find any relevant documents -- Early Exit
@@ -526,7 +615,7 @@ def _run_pipeline(
 
         for doc in selected_docs:
             on_thinking(f"Navigating table of contents for: {doc.title}")
-            start_page, end_page, section_title = _tier2_navigate_section(query, doc, client, db)
+            start_page, end_page, section_title = _tier2_navigate_section(effective_query, doc, client, db)
 
             on_thinking(f"Extracting pages {start_page}-{end_page} from: {doc.title}")
             raw_text = _extract_page_text(doc.document_id, start_page, end_page, db)
@@ -570,7 +659,7 @@ def _run_pipeline(
             if page_count > _DISTILL_THRESHOLD_PAGES or len(sd["raw_text"]) > _DISTILL_THRESHOLD_CHARS:
                 on_thinking(f"Distilling large extract from: {sd['doc'].title}")
                 context_text, distill_usage = _distill_source(
-                    query, sd["doc"].title, sd["section_title"], sd["raw_text"], client
+                    effective_query, sd["doc"].title, sd["section_title"], sd["raw_text"], client
                 )
                 distill_tokens["calls"] += 1
                 distill_tokens["prompt_tokens"] += distill_usage["prompt_tokens"]
@@ -582,7 +671,7 @@ def _run_pipeline(
                     f"pages {sd['start_page']}-{sd['end_page']}]\n\n{sd['raw_text']}"
                 )
 
-            user_message = f"Question: {query}\n\nDocument excerpts:\n\n{context_text}"
+            user_message = f"Question: {effective_query}\n\nDocument excerpts:\n\n{context_text}"
         else:
             # Multi-source: distil each in parallel then synthesise
             briefs = {}
@@ -591,7 +680,7 @@ def _run_pipeline(
                 page_count = sd["end_page"] - sd["start_page"] + 1
                 if page_count > _DISTILL_THRESHOLD_PAGES or len(sd["raw_text"]) > _DISTILL_THRESHOLD_CHARS:
                     brief, usage = _distill_source(
-                        query, sd["doc"].title, sd["section_title"], sd["raw_text"], client
+                        effective_query, sd["doc"].title, sd["section_title"], sd["raw_text"], client
                     )
                 else:
                     brief = (
@@ -621,12 +710,13 @@ def _run_pipeline(
                 for sd in source_data
             ]
             context_text = "\n\n---\n\n".join(context_parts)
-            user_message = f"Question: {query}\n\nResearch briefs from multiple sources:\n\n{context_text}"
+            user_message = f"Question: {effective_query}\n\nResearch briefs from multiple sources:\n\n{context_text}"
 
         completion = client.chat.completions.create(
             model=Config.COMPLETION_MODEL,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
+                *[{"role": m["role"], "content": m["content"]} for m in history],
                 {"role": "user", "content": user_message},
             ],
             max_tokens=3500,
@@ -668,12 +758,23 @@ def _run_pipeline(
                         if distill_tokens["calls"] > 0
                         else {}
                     ),
+                    **(
+                        {
+                            "rewrite": {
+                                "hit": True,
+                                **rewrite_tokens,
+                            }
+                        }
+                        if rewrite_tokens is not None
+                        else {}
+                    ),
                 }
             ),
             session_id=session_id,
             verse_reference=verse_ref,
         )
 
+        _append_history(session_id, query, answer, db)
         return {"answer": answer, "sources": sources_out}
     finally:
         client.close()

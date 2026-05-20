@@ -134,3 +134,23 @@ class QueryCache(Base):
         nullable=False,
     )
 
+
+class ConversationSession(Base):
+    """Stores rolling per-session conversation history for follow-up questions."""
+
+    __tablename__ = "conversation_sessions"
+
+    session_id = Column(Text, primary_key=True)
+    # Flat list of {"role": "user"|"assistant", "content": str} dicts
+    messages = Column(JSON, nullable=False, default=list)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
