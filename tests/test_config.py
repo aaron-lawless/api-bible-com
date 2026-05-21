@@ -2,12 +2,12 @@ from unittest.mock import patch
 
 import pytest
 
-from app.config import Mode, _resolve_mode, _resolve_database_uri
+from config.config import Mode, _resolve_mode, _resolve_database_uri
 
 
-def test_resolve_mode_defaults_to_local(monkeypatch):
+def test_resolve_mode_defaults_to_nprd(monkeypatch):
     monkeypatch.delenv("MODE", raising=False)
-    assert _resolve_mode() == Mode.LOCAL
+    assert _resolve_mode() == Mode.NPRD
 
 
 def test_resolve_mode_nprd(monkeypatch):
@@ -49,7 +49,7 @@ def test_resolve_database_uri_nprd_raises_without_database_url(monkeypatch):
 
 
 def test_verify_database_connection_raises_on_failure():
-    from app.database import verify_database_connection, engine
+    from db.database import verify_database_connection, engine
 
     with patch.object(engine, "connect", side_effect=Exception("db down")):
         with pytest.raises(RuntimeError, match="Database connection failed during startup"):

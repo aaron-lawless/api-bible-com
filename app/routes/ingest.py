@@ -6,12 +6,12 @@ import openai
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
-from app.config import Config
-from app.database import get_db
-from app.models import Document, DocumentPage, DocumentStructure
-from app.services.embedder import embed_text
-from app.services.extractor import build_toc_from_pages, extract_pages
-from app.services.scraper import scrape_url
+from config.config import Config
+from db.database import get_db
+from app.models.database import Document, DocumentPage, DocumentStructure
+from app.services.llm.embedder import embed_text
+from app.services.ingestion.extractor import build_toc_from_pages, extract_pages
+from app.services.ingestion.scraper import scrape_url
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +83,9 @@ def ingest_pdf(
         pages = extract_pages(file.filename, data)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.exception("Unexpected extraction error for file '%s'", file.filename)
+        raise HTTPException(status_code=400, detail="Failed to extract text from the uploaded file") from exc
 
     if not pages:
         raise HTTPException(status_code=400, detail="No pages could be extracted from the file")
@@ -153,7 +156,7 @@ def ingest_pdf(
         }
     except Exception as exc:
         db.rollback()
-        logger.error("Error during PDF ingest: %s", exc)
+        logger.exception("Error during PDF ingest")
         raise HTTPException(status_code=500, detail="Internal server error during ingestion")
 
 
@@ -207,6 +210,7 @@ def ingest_url(
         db.add(doc)
         db.flush()
 
+        # formatting for TOC creation - list of (page_num, text_chunk) tuples
         pages = [(i + 1, chunk) for i, chunk in enumerate(chunks)]
 
         db.add_all(
@@ -255,6 +259,6 @@ def ingest_url(
         }
     except Exception as exc:
         db.rollback()
-        logger.error("Error during URL ingest: %s", exc)
+        logger.exception("Error during URL ingest")
         raise HTTPException(status_code=500, detail="Internal server error during ingestion")
 

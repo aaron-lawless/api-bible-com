@@ -1,14 +1,14 @@
-# AI Bible - RAG API
+# SacredScript - RAG API
 
 A document ingestion and semantic search API for Christian theological content. Accepts PDF uploads or web article URLs, stores page-by-page text with a table of contents, and answers natural language questions using a two-tier hierarchical routing pipeline powered by GPT-4o.
 
 ## Tech Stack
 
 - **Backend**: Python 3.12, FastAPI, SQLAlchemy 2.0
-- **Database**: PostgreSQL with pgvector
+- **Database**: PostgreSQL with pgvector (required in every environment)
 - **Embeddings**: `text-embedding-3-small` (1536 dimensions)
 - **Completions**: `gpt-4o`
-- **Text extraction**: pdfplumber (PDF), python-docx (DOCX), trafilatura (web URLs)
+- **Text extraction**: PyMuPDF + pymupdf4llm (PDF), python-docx (DOCX), trafilatura (web URLs)
 - **Streaming**: sse-starlette (Server-Sent Events)
 - **Deployment**: Railway
 
@@ -32,7 +32,7 @@ The raw text for the chosen page range is fetched from `document_pages`. For lar
 
 ### SSE Streaming
 
-`GET /search/stream` streams each pipeline stage as a Server-Sent Event so the UI can display live progress ("Selecting relevant sources...", "Navigating table of contents for: ...", etc.) before the final answer arrives.
+`GET /search` streams each pipeline stage as a Server-Sent Event so the UI can display live progress ("Selecting relevant sources...", "Navigating table of contents for: ...", etc.) before the final answer arrives.
 
 ---
 
@@ -94,24 +94,15 @@ Each query is recorded in `query_cache` with:
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/search` | Ask a question. Returns an answer and sources. Hits cache or runs the full pipeline. |
-| `GET` | `/search/stream` | Same as POST /search but streams pipeline progress via Server-Sent Events. |
+| `GET` | `/search` | Streams pipeline progress and final answer via Server-Sent Events. |
 | `GET` | `/questions` | Paginated list of previously answered questions. |
 | `GET` | `/questions/{query_id}` | Retrieve the full answer for a specific question by ID. No API call made. |
 
-**`POST /search` body:**
-
-| Field | Required | Description |
-|---|---|---|
-| `query` | Yes | The question to answer |
-| `document_ids` | No | Array of UUIDs to restrict search to specific documents |
-
-**`GET /search/stream` query parameters:**
+**`GET /search` query parameters:**
 
 | Parameter | Required | Description |
 |---|---|---|
 | `query` | Yes | The question to answer |
-| `document_ids` | No | One or more UUIDs to restrict search to specific documents |
 
 **`GET /questions` query parameters:**
 
@@ -129,6 +120,8 @@ Each query is recorded in `query_cache` with:
 |---|---|---|
 | `GET` | `/documents` | List all ingested documents (newest first). |
 | `GET` | `/documents/{doc_id}` | Get a document and its structure count. |
+| `GET` | `/documents/{doc_id}/pages` | List available page numbers for the document. |
+| `GET` | `/documents/{doc_id}/pages/{page_number}` | Get extracted raw markdown/text for a single page. |
 | `DELETE` | `/documents/{doc_id}` | Delete a document and all its pages and TOC entries. |
 | `GET` | `/documents/{doc_id}/structures` | List all TOC entries for a document, ordered by start page. |
 | `POST` | `/documents/{doc_id}/structures` | Add a TOC entry to a document. |
@@ -181,10 +174,17 @@ Each query is recorded in `query_cache` with:
 
 | Method | Path | Description |
 |---|---|---|
+| `GET` | `/ui` | Search UI page. |
 | `GET` | `/admin/login` | Admin login page |
 | `POST` | `/admin/login` | Submit admin password |
 | `GET` | `/admin/logout` | Log out of admin session |
-| `GET` | `/admin` | Admin dashboard (requires auth) |
+| `GET` | `/admin` | Admin dashboard (requires auth), includes ingestion, TOC management, and markdown page reader |
+
+### Metrics
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `http://localhost:9090/metrics` | Prometheus metrics endpoint served by the metrics app. |
 
 ---
 
@@ -203,4 +203,6 @@ Set the following environment variables (or use a `.env` file):
 OPENAI_API_KEY=...
 DATABASE_URL=postgresql://...
 ```
+
+`DATABASE_URL` is required at startup; the application will fail fast if it cannot connect to the database.
 

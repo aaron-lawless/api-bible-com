@@ -1,4 +1,4 @@
-﻿import hashlib
+import hashlib
 import json
 import logging
 import re
@@ -12,170 +12,37 @@ import spacy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Document, DocumentStructure, DocumentPage, QueryCache, ConversationSession
-from app.services.openai_client import create_openai_client
-from app.config import Config
+from app.models.database import Document, DocumentStructure, DocumentPage, QueryCache, ConversationSession
+from app.services.llm.openai_client import _embed_query, create_openai_client
+from config.config import Config
+from app.services.search.cache import _append_history, _insert_cache_row
+from app.services.search.constants import (
+    _DISTILL_MAX_INPUT_CHARS,
+    _DISTILL_THRESHOLD_CHARS,
+    _DISTILL_THRESHOLD_PAGES,
+    _REWRITE_PROMPT,
+    DISTILL_PROMPT,
+    NAV_PROMPT,
+    ROUTING_PROMPT,
+    SYSTEM_PROMPT,
+)
+from app.services.search.utils import _distill_source, _extract_page_text, _load_history, _rewrite_with_history, extract_verse_reference, normalize_question
 
 logger = logging.getLogger(__name__)
 
-# Load the spaCy model
-nlp = spacy.load("en_core_web_sm")
-
-# Biblical book names that must never be lemmatized
-_BIBLE_BOOKS: frozenset[str] = frozenset({
-    "genesis", "exodus", "leviticus", "numbers", "deuteronomy",
-    "joshua", "judges", "ruth", "ezra", "nehemiah", "esther", "job",
-    "psalms", "psalm", "proverbs", "ecclesiastes", "isaiah", "jeremiah",
-    "lamentations", "ezekiel", "daniel", "hosea", "joel", "amos",
-    "obadiah", "jonah", "micah", "nahum", "habakkuk", "zephaniah",
-    "haggai", "zechariah", "malachi", "matthew", "mark", "luke", "john",
-    "acts", "romans", "galatians", "ephesians", "philippians", "colossians",
-    "titus", "philemon", "hebrews", "james", "jude", "revelation",
-    "corinthians", "thessalonians", "timothy", "peter", "kings", "samuel",
-    "chronicles",
-})
-
-SYSTEM_PROMPT = """You are a Christian theological assistant helping users understand the Bible through the provided sources.
-
-Answer questions using ONLY the document excerpts provided. Do not draw on outside knowledge.
-- Cite every claim using the format: (Title, Section Title, pages X-Y)
-- Present differing interpretations fairly if they appear in the source material
-
-When the question refers to a specific verse or verse range:
-- If the provided excerpts directly address that verse or range, answer from those excerpts
-- If the excerpts do not contain enough detail about that specific verse but do cover the surrounding chapter or passage, provide an answer based on that broader context and begin your response with a brief note such as: "I couldn't find specific commentary on that verse, but here is what the sources say about the surrounding passage:"
-- If the excerpts contain no relevant information at all, say so clearly -- do not speculate or fill in gaps
-
-Format your response using Markdown: use **bold** for emphasis, headings (##, ###) to organise longer answers, and bullet lists where appropriate.
-Write with clarity and pastoral warmth, grounded entirely in the provided documents."""
-
-DISTILL_PROMPT = """You are a research assistant summarising theological commentary for use in a comparative synthesis.
-
-Given the document excerpt below, write a focused research brief (3-6 paragraphs) that:
-- Captures the author's main argument and key insights relevant to the query
-- Preserves important quotations or specific exegetical points
-- Notes the author's theological framework where relevant
-- Is written in third-person ("The author argues...", "Henry notes...")
-
-Do not add information not found in the excerpt. Be concise but thorough."""
-
-# How many pages constitute a "large" section that warrants pre-distillation
-_DISTILL_THRESHOLD_PAGES = 15
-# Fallback for single-page URL ingests: distil if raw text exceeds this (~ 3,000 tokens)
-_DISTILL_THRESHOLD_CHARS = 12_000
-
-
-def normalize_question(text: str) -> str:
-    doc = nlp(text)
-    tokens = []
-    for token in doc:
-        if token.is_stop or token.is_punct:
-            continue
-        lower = token.text.lower()
-        if lower in _BIBLE_BOOKS or token.pos_ == "PROPN":
-            tokens.append(lower)
-        else:
-            tokens.append(token.lemma_.lower())
-    return " ".join(tokens)
-
-
-# ---------------------------------------------------------------------------
-# Verse reference extraction
-# ---------------------------------------------------------------------------
-_VERSE_COLON_RE = re.compile(
-    r"(?P<book>[1-3]?\s*[a-zA-Z]+)\s+(?P<ch>\d+):(?P<vs>\d+)(?:\s*[--]\s*(?P<ve>\d+))?",
-    re.IGNORECASE,
-)
-_VERSE_SPACE_DASH_RE = re.compile(
-    r"(?P<book>[1-3]?\s*[a-zA-Z]+)\s+(?P<ch>\d+)\s+(?P<vs>\d+)\s*[--]\s*(?P<ve>\d+)",
-    re.IGNORECASE,
-)
-_VERSE_SPACE_TO_RE = re.compile(
-    r"(?P<book>[1-3]?\s*[a-zA-Z]+)\s+(?P<ch>\d+)\s+(?P<vs>\d+)\s+to\s+(?P<ve>\d+)",
-    re.IGNORECASE,
-)
-
-
-def extract_verse_reference(text: str) -> tuple[str, str, int, int, int | None] | None:
-    for pattern in (_VERSE_COLON_RE, _VERSE_SPACE_DASH_RE, _VERSE_SPACE_TO_RE):
-        m = pattern.search(text)
-        if m:
-            book = m.group("book").strip().lower()
-            ch = int(m.group("ch"))
-            vs = int(m.group("vs"))
-            ve_str = m.group("ve")
-            ve = int(ve_str) if ve_str else None
-            ref = f"{book} {ch}:{vs}"
-            if ve:
-                ref += f"-{ve}"
-            return ref, book, ch, vs, ve
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Cache helpers
-# ---------------------------------------------------------------------------
-
-def _insert_cache_row(
-    db: Session,
-    *,
-    question_raw: str,
-    question_normalized: str,
-    question_hash: str,
-    embedding: list[float],
-    response: str,
-    cache_hit: bool,
-    sources: list[dict] | None = None,
-    cache_hit_type: str | None = None,
-    cache_source_id: uuid.UUID | None = None,
-    similarity_score: float | None = None,
-    token_information: dict | None = None,
-    session_id: str = "",
-    verse_reference: str | None = None,
-) -> None:
-    row = QueryCache(
-        question_raw=question_raw,
-        question_normalized=question_normalized,
-        question_hash=question_hash,
-        embedding=embedding,
-        response=response,
-        cache_hit=cache_hit,
-        sources=sources or [],
-        cache_hit_type=cache_hit_type,
-        cache_source_id=cache_source_id,
-        similarity_score=str(similarity_score) if similarity_score is not None else None,
-        token_information=token_information or {},
-        session_id=session_id,
-        verse_reference=verse_reference,
-    )
-    db.add(row)
-    db.commit()
-
+# TODO: Create models that the llm should respond with
 
 # ---------------------------------------------------------------------------
 # Tier 1 -- Document Router
 # ---------------------------------------------------------------------------
 
-def _embed_query(client: openai.OpenAI, text: str) -> tuple[list[float], int]:
-    resp = client.embeddings.create(model=Config.EMBEDDING_MODEL, input=[text])
-    return resp.data[0].embedding, resp.usage.prompt_tokens
-
-
 def _tier1_route_documents(
     query: str,
     query_embedding: list[float],
-    document_ids_override: list[str] | None,
     client: openai.OpenAI,
     db: Session,
 ) -> list[Document]:
     """Return the list of Document objects to search for this query."""
-    if document_ids_override:
-        docs = []
-        for did in document_ids_override:
-            doc = db.get(Document, uuid.UUID(did))
-            if doc:
-                docs.append(doc)
-        return docs
 
     # pgvector pre-filter: cosine similarity on summary embeddings
     top_k = Config.TIER1_PREFILTER_TOP_K
@@ -203,13 +70,9 @@ def _tier1_route_documents(
         for i, row in enumerate(candidates)
     )
 
-    routing_prompt = (
-        "You are a theological research librarian. A user has asked the following question:\n\n"
-        f"QUESTION: {query}\n\n"
-        "Below are the available sources. Select the document IDs most likely to contain a "
-        "relevant answer. Return ONLY a JSON array of document_id strings -- no explanation.\n\n"
-        f"{doc_summaries}\n\n"
-        "Return format: [\"uuid1\", \"uuid2\"]"
+    routing_prompt = ROUTING_PROMPT.format(
+        query=query,
+        doc_summaries=doc_summaries,
     )
 
     response = client.chat.completions.create(
@@ -273,14 +136,10 @@ def _tier2_navigate_section(
         for i, s in enumerate(structures)
     )
 
-    nav_prompt = (
-        f"You are navigating the table of contents of '{doc.title}' to answer this question:\n\n"
-        f"QUESTION: {query}\n\n"
-        f"TOC:\n{toc_text}\n\n"
-        "Select the single MOST relevant TOC entry. Prefer the most specific (deepest level) "
-        "entry that covers the topic. Return ONLY a JSON object with keys 'index' (1-based) "
-        "and 'section_title'. No explanation.\n"
-        'Return format: {"index": 3, "section_title": "..."}'
+    nav_prompt = NAV_PROMPT.format(
+        doc_title=doc.title,
+        query=query,
+        toc_text=toc_text,
     )
 
     response = client.chat.completions.create(
@@ -308,158 +167,11 @@ def _tier2_navigate_section(
 
 
 # ---------------------------------------------------------------------------
-# Page extraction
-# ---------------------------------------------------------------------------
-
-def _extract_page_text(
-    document_id: uuid.UUID,
-    start_page: int,
-    end_page: int,
-    db: Session,
-) -> str:
-    rows = (
-        db.execute(
-            select(DocumentPage.raw_text)
-            .where(
-                DocumentPage.document_id == document_id,
-                DocumentPage.page_number >= start_page,
-                DocumentPage.page_number <= end_page,
-            )
-            .order_by(DocumentPage.page_number)
-        )
-        .scalars()
-        .all()
-    )
-    return "\n\n---\n\n".join(rows)
-
-
-# ---------------------------------------------------------------------------
-# Distillation (per-source summary for large extracts or multi-source)
-# ---------------------------------------------------------------------------
-
-# Hard cap on input to a single distillation call (~20,000 tokens at 4 chars/token).
-# Prevents 429s when a section is very large. Add a TOC to avoid hitting this limit.
-_DISTILL_MAX_INPUT_CHARS = 80_000
-
-# Number of prior conversation turns (user + assistant pairs) to include in context
-_HISTORY_WINDOW = 3
-
-_REWRITE_PROMPT = """You are a query rewriter for a theological Q&A system.
-
-Given the conversation history and the latest user question, rewrite the latest question \
-as a fully self-contained, standalone question that can be understood without any prior context.
-
-If the question is already self-contained and unambiguous, return it unchanged.
-Return ONLY the rewritten question — no explanation, no quotes."""
-
-
-def _rewrite_as_standalone(
-    query: str,
-    history: list[dict],
-    client: openai.OpenAI,
-) -> tuple[str, dict]:
-    """Rewrite a follow-up question into a standalone question using conversation history.
-
-    Returns (rewritten_query, token_info).
-    """
-    history_text = "\n".join(
-        f"{m['role'].capitalize()}: {m['content']}" for m in history
-    )
-    response = client.chat.completions.create(
-        model=Config.COMPLETION_MODEL,
-        messages=[
-            {"role": "system", "content": _REWRITE_PROMPT},
-            {
-                "role": "user",
-                "content": (
-                    f"Conversation history:\n{history_text}\n\n"
-                    f"Latest question: {query}"
-                ),
-            },
-        ],
-        temperature=0,
-        max_tokens=256,
-    )
-    rewritten = response.choices[0].message.content.strip()
-    usage = response.usage
-    token_info = {
-        "prompt_tokens": int(getattr(usage, "prompt_tokens", 0) or 0),
-        "completion_tokens": int(getattr(usage, "completion_tokens", 0) or 0),
-        "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
-    }
-    return rewritten or query, token_info
-
-
-def _load_history(session_id: str, db: Session) -> list[dict]:
-    """Return the last _HISTORY_WINDOW turn-pairs as a flat [{role, content}] list."""
-    session = db.get(ConversationSession, session_id)
-    if not session or not session.messages:
-        return []
-    return list(session.messages[-(_HISTORY_WINDOW * 2):])
-
-
-def _append_history(
-    session_id: str,
-    user_content: str,
-    assistant_content: str,
-    db: Session,
-) -> None:
-    """Append a user+assistant turn to the session's conversation history."""
-    session = db.get(ConversationSession, session_id)
-    if session is None:
-        session = ConversationSession(session_id=session_id, messages=[])
-        db.add(session)
-    messages = list(session.messages or [])
-    messages.append({"role": "user", "content": user_content})
-    messages.append({"role": "assistant", "content": assistant_content})
-    session.messages = messages
-    session.updated_at = datetime.now(timezone.utc)
-    db.commit()
-
-
-def _distill_source(
-    query: str,
-    doc_title: str,
-    section_title: str,
-    raw_text: str,
-    client: openai.OpenAI,
-) -> tuple[str, dict[str, int]]:
-    if len(raw_text) > _DISTILL_MAX_INPUT_CHARS:
-        logger.warning(
-            "Distill input for '%s' truncated from %d to %d chars — add a TOC to avoid this",
-            doc_title, len(raw_text), _DISTILL_MAX_INPUT_CHARS,
-        )
-        raw_text = raw_text[:_DISTILL_MAX_INPUT_CHARS]
-    user_msg = (
-        f"Query: {query}\n\n"
-        f"Source: {doc_title} -- {section_title}\n\n"
-        f"Excerpt:\n{raw_text}"
-    )
-    response = client.chat.completions.create(
-        model=Config.COMPLETION_MODEL,
-        messages=[
-            {"role": "system", "content": DISTILL_PROMPT},
-            {"role": "user", "content": user_msg},
-        ],
-        temperature=0,
-        max_tokens=1024,
-    )
-    usage = response.usage
-    token_info = {
-        "prompt_tokens": int(getattr(usage, "prompt_tokens", 0) or 0),
-        "completion_tokens": int(getattr(usage, "completion_tokens", 0) or 0),
-        "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
-    }
-    return response.choices[0].message.content, token_info
-
-
-# ---------------------------------------------------------------------------
-# Core pipeline (shared by answer_question and answer_question_stream)
+# Core pipeline 
 # ---------------------------------------------------------------------------
 
 def _run_pipeline(
     query: str,
-    document_ids: list[str] | None,
     api_key: str | None,
     db: Session,
     session_id: str,
@@ -487,10 +199,10 @@ def _run_pipeline(
         effective_query = query
         if history:
             on_thinking("Checking conversation history...")
-            effective_query, rewrite_tokens = _rewrite_as_standalone(query, history, client)
+            effective_query, rewrite_tokens = _rewrite_with_history(query, history, client)
             if effective_query != query:
                 logger.info("[pipeline] Query rewritten: %r → %r", query, effective_query)
-                on_thinking("Rewriting question for context...")
+                on_thinking("Rewriting question with conversation history...")
 
         # Normalize and hash the (potentially rewritten) query for caching
         # Note if there isn't history the query is unchanged
@@ -532,7 +244,7 @@ def _run_pipeline(
         # Option 2: Checking for semantically similar cached questions asked using vector search (Fast and Cheaper than full pipeline)
 
         # -- Embed query ------------------------------------------------------
-        query_embedding, embed_tokens = _embed_query(client, normalized_query)
+        query_embedding, embed_tokens = _embed_query(client, normalized_query, Config.EMBEDDING_MODEL)
 
         # -- Vector cache check -----------------------------------------------
         distance_expr = QueryCache.embedding.cosine_distance(query_embedding).label("distance")
@@ -585,7 +297,7 @@ def _run_pipeline(
         # -- Tier 1: Document routing -----------------------------------------
         on_thinking("Selecting relevant sources...")
         selected_docs = _tier1_route_documents(
-            effective_query, query_embedding, document_ids, client, db
+            effective_query, query_embedding, client, db
         )
 
         # If unable to find any relevant documents -- Early Exit
@@ -656,6 +368,7 @@ def _run_pipeline(
             for sd in source_data
         ]
 
+        # TODO I feel like there is a function that could be clear for this
         # If there's only one source, we can feed the full text to the LLM. 
         # If there are multiple sources, we distill each one first to avoid hitting token limits, then feed the briefs to the LLM for final synthesis.
         if len(source_data) == 1:
@@ -786,34 +499,8 @@ def _run_pipeline(
         client.close()
 
 
-# ---------------------------------------------------------------------------
-# Public API -- synchronous
-# ---------------------------------------------------------------------------
-
-def answer_question(
+async def answer_question(
     query: str,
-    document_ids: list[str] | None = None,
-    api_key: str | None = None,
-    db: Session | None = None,
-    session_id: str | None = None,
-) -> dict:
-    return _run_pipeline(
-        query=query,
-        document_ids=document_ids,
-        api_key=api_key,
-        db=db,
-        session_id=session_id or "",
-        on_thinking=lambda msg: logger.info("[pipeline] %s", msg),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Public API -- SSE async generator
-# ---------------------------------------------------------------------------
-
-async def answer_question_stream(
-    query: str,
-    document_ids: list[str] | None,
     api_key: str | None,
     db: Session,
     session_id: str,
@@ -830,6 +517,7 @@ async def answer_question_stream(
     """
     thinking_messages: list[str] = []
 
+    # TODO: Should we put this as a reuseable module
     def _on_thinking(msg: str) -> None:
         thinking_messages.append(msg)
         # We can't yield from a sync callback; we'll flush in the async wrapper below
@@ -848,7 +536,6 @@ async def answer_question_stream(
         try:
             result = _run_pipeline(
                 query=query,
-                document_ids=document_ids,
                 api_key=api_key,
                 db=db,
                 session_id=session_id,

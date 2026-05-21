@@ -8,13 +8,15 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential,
 )
-
-from app.services.openai_client import create_openai_client
+from config.config import Config
+from app.services.llm.openai_client import create_openai_client
 
 logger = logging.getLogger(__name__)
 
-EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
+EMBEDDING_MODEL = Config.EMBEDDING_MODEL
 
+
+# TODO look at the embedding within the client file to see if we can unify the functions
 
 @retry(
     retry=retry_if_exception_type(

@@ -101,7 +101,7 @@
       const aiBubble = appendTyping();
       const thinkingLines = [];
 
-      const url = '/search/stream?query=' + encodeURIComponent(query);
+      const url = '/search/?query=' + encodeURIComponent(query);
       const es = new EventSource(url);
 
       es.addEventListener('thinking', (e) => {

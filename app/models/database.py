@@ -5,8 +5,10 @@ from sqlalchemy import Column, Uuid, Text, Date, DateTime, Integer, ForeignKey, 
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
 
-from app.database import Base
+from db.database import Base
 
+
+# DB models for the core entities of the api
 
 class Document(Base):
     __tablename__ = "documents"
@@ -58,7 +60,6 @@ class Document(Base):
             ),
         }
 
-
 class DocumentStructure(Base):
     __tablename__ = "document_structures"
 
@@ -90,7 +91,6 @@ class DocumentStructure(Base):
             "level": self.level,
         }
 
-
 class DocumentPage(Base):
     __tablename__ = "document_pages"
 
@@ -109,7 +109,6 @@ class DocumentPage(Base):
         UniqueConstraint("document_id", "page_number", name="uq_document_page_number"),
         Index("idx_pages_doc_range", "document_id", "page_number"),
     )
-
 
 class QueryCache(Base):
     __tablename__ = "query_cache"
@@ -133,7 +132,6 @@ class QueryCache(Base):
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
-
 
 class ConversationSession(Base):
     """Stores rolling per-session conversation history for follow-up questions."""
