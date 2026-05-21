@@ -1,13 +1,18 @@
+from pathlib import Path
+
 from fastapi import FastAPI, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from typing import Dict, Any, Optional
 
 import uvicorn
 
-from logging.logger_config import UvicornAccessMiddleware
+from pyrocket.logger_config import UvicornAccessMiddleware
 from app.routes.ingest import ingest_router
 from app.routes.search import search_router
 from app.routes.documents import documents_router
 from app.routes.admin import admin_router
+from app.routes.ui import ui_router
 
 
 class ContextDict(Dict[str, Any]):
@@ -37,6 +42,7 @@ def register_routes(app: FastAPI):
     app.add_api_route("/health", health_check, include_in_schema=False)  
 
     # Register other routes
+    app.include_router(ui_router)
     app.include_router(ingest_router)
     app.include_router(search_router)
     app.include_router(documents_router)
@@ -51,6 +57,7 @@ def register_middleware(app: FastAPI):
 
     # Add CORS middleware
     app.add_middleware(
+        CORSMiddleware,
         allow_origins=["*"], # TODO: Configure this properly in production (might be fine as public apis)
         allow_credentials=True,
         allow_methods=["*"],
@@ -58,6 +65,8 @@ def register_middleware(app: FastAPI):
     )
 
 async def start_app(lifespan: callable):
+    app_dir = Path(__file__).resolve().parent.parent
+
     app = FastAPI(
         title="SacredScript API",
         version="1.0.0",
@@ -65,6 +74,14 @@ async def start_app(lifespan: callable):
         redoc_url="/redoc",
         lifespan=lifespan
     )
+
+    # Mounting the styling at the parent level for the UI and admin pages
+    app.mount(
+        "/static",
+        StaticFiles(directory=str(app_dir / "static")),
+        name="static",
+    )
+
     register_middleware(app)
     register_routes(app)
     config = uvicorn.Config(app, host='0.0.0.0', port=8080)

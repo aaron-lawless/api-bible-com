@@ -56,6 +56,7 @@ class UvicornLogFormatter:
     _empty_record = logging.LogRecord(
         name='', level=0, pathname='', lineno=0, msg='', args=(), exc_info=None
     )
+    standard_attrs = set(_empty_record.__dict__.keys())
 
     """
     Formatter for Uvicorn logs that properly includes extra fields
@@ -65,7 +66,7 @@ class UvicornLogFormatter:
     def format(record: logging.LogRecord) -> str:
         val = {
             'timestamps': current_timestamp(),
-            'level': record.levelname.lkower(),
+            'level': record.levelname.lower(),
             'message': record.getMessage()
         }
 

@@ -13,7 +13,7 @@ from app.services.llm.openai_client import create_openai_client
 
 logger = logging.getLogger(__name__)
 
-EMBEDDING_MODEL = Config.OPENAI_EMBEDDING_MODEL
+EMBEDDING_MODEL = Config.EMBEDDING_MODEL
 
 
 # TODO look at the embedding within the client file to see if we can unify the functions

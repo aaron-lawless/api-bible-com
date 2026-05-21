@@ -15,7 +15,6 @@ from sqlalchemy.orm import Session
 from app.models.database import Document, DocumentStructure, DocumentPage, QueryCache, ConversationSession
 from app.services.llm.openai_client import _embed_query, create_openai_client
 from config.config import Config
-from app.services.search import _distill_source
 from app.services.search.cache import _append_history, _insert_cache_row
 from app.services.search.constants import (
     _DISTILL_MAX_INPUT_CHARS,
@@ -27,7 +26,7 @@ from app.services.search.constants import (
     ROUTING_PROMPT,
     SYSTEM_PROMPT,
 )
-from app.services.search.utils import _extract_page_text, _load_history, _rewrite_with_history, extract_verse_reference, normalize_question
+from app.services.search.utils import _distill_source, _extract_page_text, _load_history, _rewrite_with_history, extract_verse_reference, normalize_question
 
 logger = logging.getLogger(__name__)
 

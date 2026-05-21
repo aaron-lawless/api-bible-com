@@ -15,8 +15,7 @@ from sse_starlette.sse import EventSourceResponse
 from config.config import Config
 from db.database import get_db
 from app.models.database import QueryCache
-from app.models.request import SearchRequest
-from app.services.search import answer_question
+from app.services.search.search import answer_question
 
 logger = logging.getLogger(__name__)
 
