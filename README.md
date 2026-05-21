@@ -5,7 +5,7 @@ A document ingestion and semantic search API for Christian theological content. 
 ## Tech Stack
 
 - **Backend**: Python 3.12, FastAPI, SQLAlchemy 2.0
-- **Database**: PostgreSQL with pgvector
+- **Database**: PostgreSQL with pgvector (required in every environment)
 - **Embeddings**: `text-embedding-3-small` (1536 dimensions)
 - **Completions**: `gpt-4o`
 - **Text extraction**: pdfplumber (PDF), python-docx (DOCX), trafilatura (web URLs)
@@ -203,4 +203,6 @@ Set the following environment variables (or use a `.env` file):
 OPENAI_API_KEY=...
 DATABASE_URL=postgresql://...
 ```
+
+`DATABASE_URL` is required at startup; the application will fail fast if it cannot connect to the database.
 

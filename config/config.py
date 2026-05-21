@@ -13,7 +13,7 @@ class Mode(str, Enum):
 
 
 def _resolve_mode() -> Mode:
-    raw = os.environ.get("MODE", "local").lower()
+    raw = os.environ.get("MODE", "nprd").lower()
     try:
         return Mode(raw)
     except ValueError:

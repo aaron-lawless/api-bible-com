@@ -83,6 +83,9 @@ def ingest_pdf(
         pages = extract_pages(file.filename, data)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.exception("Unexpected extraction error for file '%s'", file.filename)
+        raise HTTPException(status_code=400, detail="Failed to extract text from the uploaded file") from exc
 
     if not pages:
         raise HTTPException(status_code=400, detail="No pages could be extracted from the file")
@@ -153,7 +156,7 @@ def ingest_pdf(
         }
     except Exception as exc:
         db.rollback()
-        logger.error("Error during PDF ingest: %s", exc)
+        logger.exception("Error during PDF ingest")
         raise HTTPException(status_code=500, detail="Internal server error during ingestion")
 
 
@@ -256,6 +259,6 @@ def ingest_url(
         }
     except Exception as exc:
         db.rollback()
-        logger.error("Error during URL ingest: %s", exc)
+        logger.exception("Error during URL ingest")
         raise HTTPException(status_code=500, detail="Internal server error during ingestion")
 

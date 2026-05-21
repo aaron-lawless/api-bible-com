@@ -54,9 +54,34 @@ def extract_pages(filename: str, data: bytes) -> list[tuple[int, str]]:
 
     if name.endswith(".pdf"):
         logger.info("Extracting pages from PDF: %s", filename)
-        doc = fitz.open(stream=data, filetype="pdf")
-        chunks = pymupdf4llm.to_markdown(doc, page_chunks=True)
-        return [(chunk["metadata"]["page"] + 1, chunk["text"]) for chunk in chunks]
+        with fitz.open(stream=data, filetype="pdf") as doc:
+            chunks = pymupdf4llm.to_markdown(doc, page_chunks=True)
+
+        pages: list[tuple[int, str]] = []
+        for idx, chunk in enumerate(chunks, start=1):
+            page_number = idx
+            text = ""
+
+            if isinstance(chunk, dict):
+                text = str(chunk.get("text") or chunk.get("markdown") or "")
+                metadata = chunk.get("metadata") or {}
+                raw_page = metadata.get("page")
+                if raw_page is None:
+                    raw_page = metadata.get("page_number")
+                if isinstance(raw_page, int):
+                    # `page` is typically 0-based; `page_number` is often 1-based.
+                    page_number = raw_page + 1 if raw_page < 1 else raw_page
+            elif isinstance(chunk, str):
+                text = chunk
+
+            text = text.strip()
+            if text:
+                pages.append((page_number, text))
+
+        if not pages:
+            raise ValueError("No text could be extracted from the PDF")
+
+        return pages
 
     elif name.endswith(".docx"):
         logger.info("Extracting text from DOCX: %s", filename)

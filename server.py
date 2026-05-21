@@ -23,8 +23,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         verify_database_connection()
         logger.info("Database connection verified successfully.")
     except Exception as e:
-        logger.warning("Failed to verify database connection during startup: %s", e)
-        # TODO: need to have this fail the startup if the database connection cannot be established, but for now we just log it and continue starting up so that the UI can show the error message instead of the whole app failing to start
+        logger.exception("Failed to verify database connection during startup")
+        raise
 
     yield
 

@@ -5,9 +5,9 @@ import pytest
 from config.config import Mode, _resolve_mode, _resolve_database_uri
 
 
-def test_resolve_mode_defaults_to_local(monkeypatch):
+def test_resolve_mode_defaults_to_nprd(monkeypatch):
     monkeypatch.delenv("MODE", raising=False)
-    assert _resolve_mode() == Mode.LOCAL
+    assert _resolve_mode() == Mode.NPRD
 
 
 def test_resolve_mode_nprd(monkeypatch):

@@ -3,11 +3,13 @@ from pathlib import Path
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
 from typing import Dict, Any, Optional
 
 import uvicorn
 
 from pyrocket.logger_config import UvicornAccessMiddleware
+from config.config import Config
 from app.routes.ingest import ingest_router
 from app.routes.search import search_router
 from app.routes.documents import documents_router
@@ -53,7 +55,10 @@ def register_middleware(app: FastAPI):
     """
     Register middleware for the FastAPI application
     """
+    # For logging request/response data in uvicorn access logs
     app.add_middleware(UvicornAccessMiddleware)
+    # For Admin UI sessions (and potentially future session needs)
+    app.add_middleware(SessionMiddleware, secret_key=Config.SECRET_KEY)
 
     # Add CORS middleware
     app.add_middleware(
