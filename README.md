@@ -1,4 +1,4 @@
-# AI Bible - RAG API
+# SacredScript - RAG API
 
 A document ingestion and semantic search API for Christian theological content. Accepts PDF uploads or web article URLs, stores page-by-page text with a table of contents, and answers natural language questions using a two-tier hierarchical routing pipeline powered by GPT-4o.
 
