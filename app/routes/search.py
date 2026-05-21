@@ -12,7 +12,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
-from app.config import Config
+from config.config import Config
 from db.database import get_db
 from app.models.database import QueryCache
 from app.models.request import SearchRequest

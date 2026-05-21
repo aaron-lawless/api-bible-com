@@ -6,7 +6,7 @@ import openai
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
-from app.config import Config
+from config.config import Config
 from db.database import get_db
 from app.models.database import Document, DocumentPage, DocumentStructure
 from app.services.llm.embedder import embed_text

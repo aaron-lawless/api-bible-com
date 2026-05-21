@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from app.config import Config
+from config.config import Config
 
 logger = logging.getLogger(__name__)
 

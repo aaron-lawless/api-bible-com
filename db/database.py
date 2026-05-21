@@ -4,7 +4,7 @@ from urllib.parse import urlparse
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker, Session
 
-from app.config import Config
+from config.config import Config
 
 logger = logging.getLogger("db_startup")
 

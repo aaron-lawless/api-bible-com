@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.models.database import Document, DocumentStructure, DocumentPage, QueryCache, ConversationSession
 from app.services.llm.openai_client import _embed_query, create_openai_client
-from app.config import Config
+from config.config import Config
 from app.services.search import _distill_source
 from app.services.search.cache import _append_history, _insert_cache_row
 from app.services.search.constants import (

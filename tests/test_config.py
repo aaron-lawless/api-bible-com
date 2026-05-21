@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 import pytest
 
-from app.config import Mode, _resolve_mode, _resolve_database_uri
+from config.config import Mode, _resolve_mode, _resolve_database_uri
 
 
 def test_resolve_mode_defaults_to_local(monkeypatch):

@@ -9,7 +9,7 @@ import spacy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.config import Config
+from config.config import Config
 from app.models.database import ConversationSession, DocumentPage
 from app.services.search.constants import _DISTILL_MAX_INPUT_CHARS, _HISTORY_WINDOW, _REWRITE_PROMPT, DISTILL_PROMPT
 

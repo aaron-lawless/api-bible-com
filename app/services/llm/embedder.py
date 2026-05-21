@@ -8,7 +8,7 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential,
 )
-from app.config import Config
+from config.config import Config
 from app.services.llm.openai_client import create_openai_client
 
 logger = logging.getLogger(__name__)

@@ -31,19 +31,11 @@ def _resolve_database_uri(mode: Mode) -> str:
 _mode = _resolve_mode()
 
 
-def _resolve_cors_origins(mode: Mode) -> list[str]:
-    raw = os.environ.get("CORS_ORIGINS", "")
-    if raw:
-        return [o.strip() for o in raw.split(",") if o.strip()]
-    return ["*"]
-
-
 class Config:
     MODE: Mode = _mode
     SECRET_KEY = os.environ.get("SECRET_KEY", "change-me")
     SQLALCHEMY_DATABASE_URI = _resolve_database_uri(_mode)
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    CORS_ORIGINS: list[str] = _resolve_cors_origins(_mode)
     OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
     COMPLETION_MODEL = os.environ.get("COMPLETION_MODEL", "gpt-4o")
     EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
