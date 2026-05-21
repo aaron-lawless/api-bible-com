@@ -518,6 +518,7 @@ async def answer_question(
     """
     thinking_messages: list[str] = []
 
+    # TODO: Should we put this as a reuseable module
     def _on_thinking(msg: str) -> None:
         thinking_messages.append(msg)
         # We can't yield from a sync callback; we'll flush in the async wrapper below

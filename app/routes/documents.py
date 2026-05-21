@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.database import Document, DocumentStructure
+from app.models.request import StructureIn
 
 logger = logging.getLogger(__name__)
 
@@ -45,24 +46,6 @@ def delete_document(doc_id: uuid.UUID, db: Session = Depends(get_db)):
     db.commit()
     logger.info("Deleted document id=%s", doc_id)
     return {"message": "Document deleted"}
-
-
-# ?? TOC / Structure endpoints ??????????????????????????????????????????????
-
-class StructureIn(BaseModel):
-    section_title: str
-    start_page: int
-    end_page: int
-    level: int = 1
-
-    @model_validator(mode="after")
-    def validate_page_range(self):
-        if self.start_page < 1:
-            raise ValueError("start_page must be >= 1")
-        if self.end_page < self.start_page:
-            raise ValueError("end_page must be >= start_page")
-        return self
-
 
 @documents_router.get("/documents/{doc_id}/structures")
 def list_structures(doc_id: uuid.UUID, db: Session = Depends(get_db)):

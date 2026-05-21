@@ -20,11 +20,11 @@ def _register_vector_extension(dbapi_conn, _connection_record):
         cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
     dbapi_conn.commit()
 
-
+# SQLAlchemy base class for models to inherit from -- This is required for the db models
 class Base(DeclarativeBase):
     pass
 
-
+# Dependency for getting a database session in FastAPI routes
 def get_db():
     db = SessionLocal()
     try:
@@ -32,7 +32,7 @@ def get_db():
     finally:
         db.close()
 
-
+# Helper function to format the database target for logging at startup, with special handling for Postgres URIs
 def _format_database_target(database_uri: str) -> str:
     parsed = urlparse(database_uri)
     scheme = parsed.scheme or "database"
@@ -45,7 +45,7 @@ def _format_database_target(database_uri: str) -> str:
 
     return f"{scheme} {database_uri}"
 
-
+# Helper function to verify database connectivity at application startup, with logging
 def verify_database_connection() -> None:
     logger.info(
         "Connecting to %s", _format_database_target(Config.SQLALCHEMY_DATABASE_URI)

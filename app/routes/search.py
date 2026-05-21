@@ -42,7 +42,6 @@ async def search(
         )
     )
 
-
 @search_router.get("/questions")
 def list_questions(
     page: int = Query(1, ge=1),
@@ -105,9 +104,3 @@ def get_question_answer(query_id: str, db: Session = Depends(get_db)):
         "answer": row.response,
         "sources": row.sources or [],
     }
-
-
-_templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
-
-logger = logging.getLogger(__name__)
-

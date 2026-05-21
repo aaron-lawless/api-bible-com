@@ -10,8 +10,8 @@ from app.config import Config
 from app.database import get_db
 from app.models.database import Document, DocumentPage, DocumentStructure
 from app.services.llm.embedder import embed_text
-from app.services.extractor import build_toc_from_pages, extract_pages
-from app.services.scraper import scrape_url
+from app.services.ingestion.extractor import build_toc_from_pages, extract_pages
+from app.services.ingestion.scraper import scrape_url
 
 logger = logging.getLogger(__name__)
 
@@ -207,6 +207,7 @@ def ingest_url(
         db.add(doc)
         db.flush()
 
+        # formatting for TOC creation - list of (page_num, text_chunk) tuples
         pages = [(i + 1, chunk) for i, chunk in enumerate(chunks)]
 
         db.add_all(
