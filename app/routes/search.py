@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
 from app.config import Config
-from app.database import get_db
+from db.database import get_db
 from app.models.database import QueryCache
 from app.models.request import SearchRequest
 from app.services.search import answer_question

@@ -6,7 +6,7 @@ import openai
 
 DEFAULT_OPENAI_TIMEOUT_SECONDS = float(os.environ.get("OPENAI_TIMEOUT_SECONDS", "60"))
 
-
+# TODO: Should the creation of the client be created once and reused?
 def create_openai_client(
     api_key: str | None,
     timeout_seconds: float = DEFAULT_OPENAI_TIMEOUT_SECONDS,

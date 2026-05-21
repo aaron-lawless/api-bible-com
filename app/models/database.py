@@ -5,7 +5,7 @@ from sqlalchemy import Column, Uuid, Text, Date, DateTime, Integer, ForeignKey, 
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
 
-from app.database import Base
+from db.database import Base
 
 
 # DB models for the core entities of the api

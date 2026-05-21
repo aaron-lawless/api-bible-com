@@ -49,7 +49,7 @@ def test_resolve_database_uri_nprd_raises_without_database_url(monkeypatch):
 
 
 def test_verify_database_connection_raises_on_failure():
-    from app.database import verify_database_connection, engine
+    from db.database import verify_database_connection, engine
 
     with patch.object(engine, "connect", side_effect=Exception("db down")):
         with pytest.raises(RuntimeError, match="Database connection failed during startup"):

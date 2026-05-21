@@ -57,3 +57,14 @@ def verify_database_connection() -> None:
     except Exception as exc:
         logger.exception("Database connection failed during startup")
         raise RuntimeError("Database connection failed during startup") from exc
+
+
+def close_database_connections() -> None:
+    """Dispose the SQLAlchemy engine and close pooled database connections."""
+    logger.info("Disposing database engine and closing pooled connections")
+    try:
+        engine.dispose()
+        logger.info("Database engine disposed successfully")
+    except Exception as exc:
+        logger.exception("Failed to dispose database engine")
+        raise RuntimeError("Failed to close database connections") from exc

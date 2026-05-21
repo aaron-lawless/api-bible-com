@@ -6,7 +6,7 @@ from pydantic import BaseModel, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from db.database import get_db
 from app.models.database import Document, DocumentStructure
 from app.models.request import StructureIn
 

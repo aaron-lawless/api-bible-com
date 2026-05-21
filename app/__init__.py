@@ -23,7 +23,7 @@ _APP_DIR = Path(__file__).parent
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from app.database import verify_database_connection
+    from db.database import verify_database_connection
 
     verify_database_connection()
     print("  API docs:  http://localhost:8000/docs")
