@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from db.database import get_db
-from app.models.database import Document, DocumentStructure
+from app.models.database import Document, DocumentPage, DocumentStructure
 from app.models.request import StructureIn
 
 logger = logging.getLogger(__name__)
@@ -34,6 +34,63 @@ def get_document(doc_id: uuid.UUID, db: Session = Depends(get_db)):
     data = doc.to_dict()
     data["structure_count"] = len(doc.structures)
     return data
+
+
+@documents_router.get("/documents/{doc_id}/pages")
+def list_document_pages(doc_id: uuid.UUID, db: Session = Depends(get_db)):
+    doc = db.get(Document, doc_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    rows = (
+        db.execute(
+            select(DocumentPage.page_number)
+            .where(DocumentPage.document_id == doc_id)
+            .order_by(DocumentPage.page_number)
+        )
+        .all()
+    )
+    return {
+        "document_id": str(doc_id),
+        "total_pages": doc.total_pages,
+        "pages": [r.page_number for r in rows],
+    }
+
+
+@documents_router.get("/documents/{doc_id}/pages/{page_number}")
+def get_document_page(
+    doc_id: uuid.UUID,
+    page_number: int,
+    db: Session = Depends(get_db),
+):
+    doc = db.get(Document, doc_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if page_number < 1:
+        raise HTTPException(status_code=400, detail="page_number must be >= 1")
+
+    page = (
+        db.execute(
+            select(DocumentPage)
+            .where(
+                DocumentPage.document_id == doc_id,
+                DocumentPage.page_number == page_number,
+            )
+            .limit(1)
+        )
+        .scalar_one_or_none()
+    )
+    if page is None:
+        raise HTTPException(status_code=404, detail="Page not found")
+
+    return {
+        "document_id": str(doc_id),
+        "title": doc.title,
+        "page_number": page.page_number,
+        "total_pages": doc.total_pages,
+        "raw_text": page.raw_text,
+    }
 
 
 @documents_router.delete("/documents/{doc_id}")

@@ -3,35 +3,31 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Admin Dashboard — AI Bible</title>
+  <title>Admin Dashboard - AI Bible</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
   <div class="app-shell">
     <main class="main">
       <div class="admin-header">
-        <h1>📖 Document Manager</h1>
+        <h1>Document Manager</h1>
         <div style="display:flex; gap:0.5rem;">
-          <a href="/" class="btn btn-ghost btn-sm">← Back to Search</a>
+          <a href="/ui" class="btn btn-ghost btn-sm">Back to Search</a>
           <a href="/admin/logout" class="btn btn-ghost btn-sm">Sign out</a>
         </div>
       </div>
 
       <div class="admin-content">
         <div class="admin-grid">
-
-          <!-- Ingest column -->
           <div style="display:flex; flex-direction:column; gap:1rem;">
-
-            <!-- PDF upload card -->
             <div class="card">
               <h2>Upload PDF / DOCX / TXT</h2>
               <div id="pdf-alert" style="display:none;"></div>
               <form id="pdf-form">
                 <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
-                  <svg width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                   <p id="drop-label">Drop a file here or click to browse</p>
                   <p style="font-size:0.76rem; margin-top:0.25rem;">PDF, DOCX, TXT</p>
                   <input type="file" id="file-input" name="file" accept=".pdf,.docx,.txt" />
@@ -39,33 +35,30 @@
                 <div class="progress-wrap" id="pdf-progress-wrap">
                   <div class="progress-bar" id="pdf-progress-bar"></div>
                 </div>
-                <div class="form-group"><label>Title *</label><input type="text" name="title" placeholder="Document title" required /></div>
-                <div class="form-group"><label>Author</label><input type="text" name="author" placeholder="Author name" /></div>
+                <div class="form-group"><label>Title *</label><input type="text" name="title" required /></div>
+                <div class="form-group"><label>Author</label><input type="text" name="author" /></div>
                 <div class="form-group"><label>Date Published</label><input type="date" name="date_published" /></div>
-                <div class="form-group"><label>Summary * <span style="font-weight:400;font-size:0.78rem;color:var(--text-muted)">(used by AI to select this source)</span></label><textarea name="summary" rows="3" placeholder="A concise description of this document's scope, author perspective, and content focus." required style="width:100%;resize:vertical;"></textarea></div>
-                <div class="form-group"><label>Focus Area</label><input type="text" name="focus_area" placeholder="e.g. Linguistic/Exegesis, Homiletical" /></div>
-                <button type="submit" class="btn btn-primary" id="pdf-btn">Upload &amp; Ingest</button>
+                <div class="form-group"><label>Summary *</label><textarea name="summary" rows="3" required style="width:100%;resize:vertical;"></textarea></div>
+                <div class="form-group"><label>Focus Area</label><input type="text" name="focus_area" /></div>
+                <button type="submit" class="btn btn-primary" id="pdf-btn">Upload and Ingest</button>
               </form>
             </div>
 
-            <!-- URL ingest card -->
             <div class="card">
               <h2>Ingest Web Article</h2>
               <div id="url-alert" style="display:none;"></div>
               <form id="url-form">
-                <div class="form-group"><label>URL *</label><input type="url" name="url" placeholder="https://example.com/article" required /></div>
-                <div class="form-group"><label>Title *</label><input type="text" name="title" placeholder="Article title" required /></div>
+                <div class="form-group"><label>URL *</label><input type="url" name="url" required /></div>
+                <div class="form-group"><label>Title *</label><input type="text" name="title" required /></div>
                 <div class="form-group"><label>Author</label><input type="text" name="author" /></div>
                 <div class="form-group"><label>Date Published</label><input type="date" name="date_published" /></div>
-                <div class="form-group"><label>Summary * <span style="font-weight:400;font-size:0.78rem;color:var(--text-muted)">(used by AI to select this source)</span></label><textarea name="summary" rows="3" placeholder="A concise description of this article's scope and perspective." required style="width:100%;resize:vertical;"></textarea></div>
-                <div class="form-group"><label>Focus Area</label><input type="text" name="focus_area" placeholder="e.g. Apologetics, Devotional" /></div>
-                <button type="submit" class="btn btn-primary" id="url-btn">Scrape &amp; Ingest</button>
+                <div class="form-group"><label>Summary *</label><textarea name="summary" rows="3" required style="width:100%;resize:vertical;"></textarea></div>
+                <div class="form-group"><label>Focus Area</label><input type="text" name="focus_area" /></div>
+                <button type="submit" class="btn btn-primary" id="url-btn">Scrape and Ingest</button>
               </form>
             </div>
-
           </div>
 
-          <!-- Documents list card -->
           <div class="card">
             <h2>
               Uploaded Documents
@@ -75,24 +68,21 @@
               <li style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0.75rem;"><span class="spinner"></span></li>
             </ul>
           </div>
-
         </div>
 
-        <!-- TOC management panel (shown when a doc is selected) -->
         <div id="toc-panel" style="display:none; margin-top:1.5rem;">
           <div class="card">
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1rem;">
-              <h2 style="margin:0;">Table of Contents — <span id="toc-doc-title" style="font-weight:400;"></span></h2>
-              <button class="btn btn-ghost btn-sm" onclick="closeToc()">✕ Close</button>
+              <h2 style="margin:0;">Table of Contents - <span id="toc-doc-title" style="font-weight:400;"></span></h2>
+              <button class="btn btn-ghost btn-sm" onclick="closeToc()">Close</button>
             </div>
             <div id="toc-alert" style="display:none; margin-bottom:0.75rem;"></div>
 
-            <!-- Add entry form -->
-            <form id="toc-form" style="display:grid; grid-template-columns:1fr 80px 80px 80px auto; gap:0.5rem; align-items:end; margin-bottom:1rem;">
-              <div class="form-group" style="margin:0;"><label style="font-size:0.78rem;">Section Title</label><input type="text" id="toc-section-title" placeholder="e.g. Chapter 3 — The Fall" required /></div>
-              <div class="form-group" style="margin:0;"><label style="font-size:0.78rem;">Start</label><input type="number" id="toc-start" min="1" placeholder="1" required /></div>
-              <div class="form-group" style="margin:0;"><label style="font-size:0.78rem;">End</label><input type="number" id="toc-end" min="1" placeholder="10" required /></div>
-              <div class="form-group" style="margin:0;"><label style="font-size:0.78rem;">Level</label><input type="number" id="toc-level" min="1" max="5" value="1" /></div>
+            <form id="toc-form" style="display:grid; grid-template-columns:1fr 90px 90px 90px auto; gap:0.5rem; align-items:end; margin-bottom:1rem;">
+              <div class="form-group" style="margin:0;"><label>Section Title</label><input type="text" id="toc-section-title" required /></div>
+              <div class="form-group" style="margin:0;"><label>Start</label><input type="number" id="toc-start" min="1" required /></div>
+              <div class="form-group" style="margin:0;"><label>End</label><input type="number" id="toc-end" min="1" required /></div>
+              <div class="form-group" style="margin:0;"><label>Level</label><input type="number" id="toc-level" min="1" max="6" value="1" /></div>
               <button type="submit" class="btn btn-primary btn-sm" style="margin-top:1.25rem;">Add</button>
             </form>
 
@@ -113,12 +103,49 @@
           </div>
         </div>
 
+        <div id="reader-panel" style="display:none; margin-top:1.5rem;">
+          <div class="card">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1rem;">
+              <h2 style="margin:0;">Markdown Reader - <span id="reader-doc-title" style="font-weight:400;"></span></h2>
+              <button class="btn btn-ghost btn-sm" onclick="closeReader()">Close</button>
+            </div>
+
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; margin-bottom:0.8rem; flex-wrap:wrap;">
+              <div id="reader-status" style="color:var(--text-muted); font-size:0.82rem;">Select a page</div>
+              <div style="display:flex; gap:0.5rem;">
+                <button type="button" id="reader-prev" class="btn btn-ghost btn-sm" onclick="stepReader(-1)">Previous</button>
+                <button type="button" id="reader-next" class="btn btn-ghost btn-sm" onclick="stepReader(1)">Next</button>
+              </div>
+            </div>
+
+            <div style="display:grid; grid-template-columns:220px 1fr; gap:0.75rem; min-height:420px;">
+              <div style="border:1px solid var(--border); border-radius:10px; background:var(--bg-input); overflow:auto; max-height:500px;">
+                <div id="reader-page-list"></div>
+              </div>
+
+              <div style="border:1px solid var(--border); border-radius:10px; overflow:hidden; display:flex; flex-direction:column;">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:0; border-bottom:1px solid var(--border);">
+                  <div style="padding:0.5rem 0.75rem; background:var(--bg-input); font-size:0.78rem; color:var(--text-muted);">Rendered Markdown</div>
+                  <div style="padding:0.5rem 0.75rem; background:var(--bg-input); font-size:0.78rem; color:var(--text-muted); border-left:1px solid var(--border);">Raw Text</div>
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; min-height:380px;">
+                  <div id="reader-rendered" style="padding:1rem; overflow:auto;"></div>
+                  <pre id="reader-raw" style="margin:0; padding:1rem; border-left:1px solid var(--border); overflow:auto; white-space:pre-wrap; background:var(--bg); color:var(--text);"></pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
     </main>
   </div>
 
   <script>
     let _tocDocId = null;
+    let _readerDocId = null;
+    let _readerPages = [];
+    let _readerIndex = -1;
 
     function escapeHtml(s) {
       if (s == null) return '';
@@ -133,46 +160,46 @@
       setTimeout(() => { box.style.display = 'none'; }, 6000);
     }
 
-    /* ── Drag & drop ── */
-    const dropZone  = document.getElementById('drop-zone');
+    const dropZone = document.getElementById('drop-zone');
     const fileInput = document.getElementById('file-input');
     const dropLabel = document.getElementById('drop-label');
 
     fileInput.addEventListener('change', () => {
       if (fileInput.files[0]) dropLabel.textContent = fileInput.files[0].name;
     });
-    dropZone.addEventListener('dragover',  (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); });
-    dropZone.addEventListener('dragleave', ()  => dropZone.classList.remove('drag-over'));
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
     dropZone.addEventListener('drop', (e) => {
       e.preventDefault();
       dropZone.classList.remove('drag-over');
       const file = e.dataTransfer.files[0];
-      if (file) {
-        const dt = new DataTransfer();
-        dt.items.add(file);
-        fileInput.files = dt.files;
-        dropLabel.textContent = file.name;
-      }
+      if (!file) return;
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      fileInput.files = dt.files;
+      dropLabel.textContent = file.name;
     });
 
-    /* ── PDF upload ── */
     document.getElementById('pdf-form').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const btn  = document.getElementById('pdf-btn');
+      const btn = document.getElementById('pdf-btn');
       const prog = document.getElementById('pdf-progress-wrap');
-      const bar  = document.getElementById('pdf-progress-bar');
+      const bar = document.getElementById('pdf-progress-bar');
 
-      if (!fileInput.files[0]) { showAlert('pdf-alert', 'Please select a file.', 'error'); return; }
+      if (!fileInput.files[0]) {
+        showAlert('pdf-alert', 'Please select a file.', 'error');
+        return;
+      }
 
       btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span> Ingesting…';
+      btn.innerHTML = '<span class="spinner"></span> Ingesting...';
       prog.style.display = 'block';
 
       let pct = 0;
       const ticker = setInterval(() => {
         pct = Math.min(pct + Math.random() * 8, 88);
         bar.style.width = pct + '%';
-      }, 400);
+      }, 350);
 
       const formData = new FormData(e.target);
       formData.set('file', fileInput.files[0]);
@@ -183,7 +210,7 @@
         clearInterval(ticker);
         bar.style.width = '100%';
         if (resp.ok) {
-          showAlert('pdf-alert', `✓ Ingested "${escapeHtml(data.title)}" — ${data.total_pages} pages`, 'success');
+          showAlert('pdf-alert', `Ingested "${data.title}" (${data.total_pages} pages).`, 'success');
           e.target.reset();
           dropLabel.textContent = 'Drop a file here or click to browse';
           loadDocuments();
@@ -195,25 +222,22 @@
         showAlert('pdf-alert', `Network error: ${err.message}`, 'error');
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Upload & Ingest';
+        btn.textContent = 'Upload and Ingest';
         setTimeout(() => { prog.style.display = 'none'; bar.style.width = '0%'; }, 800);
       }
     });
 
-    /* ── URL ingest ── */
     document.getElementById('url-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = document.getElementById('url-btn');
       btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span> Scraping…';
-
-      const formData = new FormData(e.target);
+      btn.innerHTML = '<span class="spinner"></span> Scraping...';
 
       try {
-        const resp = await fetch('/ingest/url', { method: 'POST', body: formData });
+        const resp = await fetch('/ingest/url', { method: 'POST', body: new FormData(e.target) });
         const data = await resp.json();
         if (resp.ok) {
-          showAlert('url-alert', `✓ Ingested "${escapeHtml(data.title)}"`, 'success');
+          showAlert('url-alert', `Ingested "${data.title}".`, 'success');
           e.target.reset();
           loadDocuments();
         } else {
@@ -223,11 +247,10 @@
         showAlert('url-alert', `Network error: ${err.message}`, 'error');
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Scrape & Ingest';
+        btn.textContent = 'Scrape and Ingest';
       }
     });
 
-    /* ── Document list ── */
     async function loadDocuments() {
       const list = document.getElementById('doc-list');
       try {
@@ -238,17 +261,19 @@
           list.innerHTML = '<li style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0.75rem;">No documents yet.</li>';
           return;
         }
+
         list.innerHTML = docs.map(doc => `
           <li class="doc-item" data-id="${escapeHtml(doc.document_id)}">
             <div class="doc-item-info">
               <div class="doc-item-title">${escapeHtml(doc.title)}</div>
               <div class="doc-item-meta">
-                ${escapeHtml(doc.author || '—')}
+                ${escapeHtml(doc.author || '-')}
                 ${doc.date_published ? ' · ' + escapeHtml(doc.date_published) : ''}
                 · ${doc.total_pages} page${doc.total_pages === 1 ? '' : 's'}
               </div>
             </div>
-            <div class="doc-item-actions">
+            <div class="doc-item-actions" style="display:flex; gap:0.35rem; flex-wrap:wrap;">
+              <button class="btn btn-ghost btn-sm" onclick="openReader('${escapeHtml(doc.document_id)}', '${escapeHtml(doc.title).replace(/'/g,"\\'")}')">Reader</button>
               <button class="btn btn-ghost btn-sm" onclick="openToc('${escapeHtml(doc.document_id)}', '${escapeHtml(doc.title).replace(/'/g,"\\'")}')">TOC</button>
               <button class="btn btn-danger btn-sm" onclick="deleteDoc('${escapeHtml(doc.document_id)}', this)">Delete</button>
             </div>
@@ -262,24 +287,20 @@
     async function deleteDoc(id, btn) {
       if (!confirm('Delete this document and all its pages and TOC entries?')) return;
       btn.disabled = true;
-      btn.textContent = '…';
+      btn.textContent = '...';
       try {
         const resp = await fetch(`/documents/${id}`, { method: 'DELETE' });
-        if (resp.ok) {
-          document.querySelector(`[data-id="${id}"]`)?.remove();
-          const remaining = document.querySelectorAll('#doc-list .doc-item').length;
-          document.getElementById('doc-count').textContent = `(${remaining})`;
-          if (!remaining) {
-            document.getElementById('doc-list').innerHTML =
-              '<li style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0.75rem;">No documents yet.</li>';
-          }
-          if (_tocDocId === id) closeToc();
-        } else {
-          const d = await resp.json();
-          alert(`Delete failed: ${d.detail || d.error}`);
+        if (!resp.ok) {
+          const data = await resp.json();
+          alert(`Delete failed: ${data.detail || data.error}`);
           btn.disabled = false;
           btn.textContent = 'Delete';
+          return;
         }
+        document.querySelector(`[data-id="${id}"]`)?.remove();
+        if (_tocDocId === id) closeToc();
+        if (_readerDocId === id) closeReader();
+        loadDocuments();
       } catch (err) {
         alert(`Network error: ${err.message}`);
         btn.disabled = false;
@@ -287,13 +308,12 @@
       }
     }
 
-    /* ── TOC panel ── */
     async function openToc(docId, docTitle) {
       _tocDocId = docId;
       document.getElementById('toc-doc-title').textContent = docTitle;
       document.getElementById('toc-panel').style.display = 'block';
-      document.getElementById('toc-panel').scrollIntoView({ behavior: 'smooth' });
       await loadToc();
+      document.getElementById('toc-panel').scrollIntoView({ behavior: 'smooth' });
     }
 
     function closeToc() {
@@ -304,7 +324,7 @@
     async function loadToc() {
       if (!_tocDocId) return;
       const tbody = document.getElementById('toc-tbody');
-      tbody.innerHTML = '<tr><td colspan="5" style="padding:0.5rem; color:var(--text-muted);">Loading…</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" style="padding:0.5rem; color:var(--text-muted);">Loading...</td></tr>';
       try {
         const resp = await fetch(`/documents/${_tocDocId}/structures`);
         const rows = await resp.json();
@@ -319,7 +339,7 @@
             <td style="padding:0.4rem 0.5rem;">${r.end_page}</td>
             <td style="padding:0.4rem 0.5rem;">${r.level}</td>
             <td style="padding:0.4rem 0.5rem; text-align:right;">
-              <button class="btn btn-danger btn-sm" onclick="deleteStructure('${escapeHtml(r.id)}', this)">✕</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteStructure('${escapeHtml(r.id)}', this)">X</button>
             </td>
           </tr>
         `).join('');
@@ -337,6 +357,7 @@
         end_page: parseInt(document.getElementById('toc-end').value, 10),
         level: parseInt(document.getElementById('toc-level').value, 10) || 1,
       };
+
       try {
         const resp = await fetch(`/documents/${_tocDocId}/structures`, {
           method: 'POST',
@@ -344,15 +365,16 @@
           body: JSON.stringify(body),
         });
         const data = await resp.json();
-        if (resp.ok) {
-          document.getElementById('toc-section-title').value = '';
-          document.getElementById('toc-start').value = '';
-          document.getElementById('toc-end').value = '';
-          document.getElementById('toc-level').value = '1';
-          await loadToc();
-        } else {
+        if (!resp.ok) {
           showAlert('toc-alert', `Error: ${data.detail || data.error}`, 'error');
+          return;
         }
+
+        document.getElementById('toc-section-title').value = '';
+        document.getElementById('toc-start').value = '';
+        document.getElementById('toc-end').value = '';
+        document.getElementById('toc-level').value = '1';
+        await loadToc();
       } catch (err) {
         showAlert('toc-alert', `Network error: ${err.message}`, 'error');
       }
@@ -363,240 +385,103 @@
       btn.disabled = true;
       try {
         const resp = await fetch(`/documents/${_tocDocId}/structures/${structId}`, { method: 'DELETE' });
-        if (resp.ok) {
-          document.querySelector(`[data-struct-id="${structId}"]`)?.remove();
-        } else {
-          const d = await resp.json();
-          showAlert('toc-alert', `Delete failed: ${d.detail || d.error}`, 'error');
+        if (!resp.ok) {
+          const data = await resp.json();
+          showAlert('toc-alert', `Delete failed: ${data.detail || data.error}`, 'error');
           btn.disabled = false;
+          return;
         }
+        await loadToc();
       } catch (err) {
         showAlert('toc-alert', `Network error: ${err.message}`, 'error');
         btn.disabled = false;
       }
     }
 
-    loadDocuments();
-  </script>
-</body>
-</html>
-
-<body>
-  <div class="app-shell">
-
-    <!-- Main (no sidebar) -->
-    <main class="main">
-      <div class="admin-header">
-        <h1>📖 Document Manager</h1>
-        <div style="display:flex; gap:0.5rem;">
-          <a href="/" class="btn btn-ghost btn-sm">← Back to Search</a>
-          <a href="/admin/logout" class="btn btn-ghost btn-sm">Sign out</a>
-        </div>
-      </div>
-
-      <div class="admin-content">
-        <div class="admin-grid">
-
-          <!-- Upload card -->
-          <div class="card">
-            <h2>Upload Document</h2>
-
-            <div id="alert-box" style="display:none;"></div>
-
-            <form id="upload-form">
-              <div
-                class="drop-zone"
-                id="drop-zone"
-                onclick="document.getElementById('file-input').click()"
-              >
-                <svg width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                <p id="drop-label">Drop a file here or click to browse</p>
-                <p style="font-size:0.76rem; margin-top:0.25rem;">PDF, DOCX, TXT</p>
-                <input type="file" id="file-input" name="file" accept=".pdf,.docx,.txt" />
-              </div>
-
-              <div class="progress-wrap" id="progress-wrap">
-                <div class="progress-bar" id="progress-bar"></div>
-              </div>
-
-              <div class="form-group">
-                <label>Title *</label>
-                <input type="text" name="title" placeholder="Document title" required />
-              </div>
-
-              <div class="form-group">
-                <label>Author</label>
-                <input type="text" name="author" placeholder="Author name" />
-              </div>
-
-              <div class="form-group">
-                <label>Date Published</label>
-                <input type="date" name="date_published" />
-              </div>
-
-              <button type="submit" class="btn btn-primary" id="upload-btn">
-                Upload &amp; Ingest
-              </button>
-            </form>
-          </div>
-
-          <!-- Documents list card -->
-          <div class="card">
-            <h2>
-              Uploaded Documents
-              <span id="doc-count" style="font-weight:400; color:var(--text-muted); font-size:0.82rem; margin-left:0.4rem;"></span>
-            </h2>
-            <ul class="doc-list" id="doc-list">
-              <li style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0.75rem;">
-                <span class="spinner"></span>
-              </li>
-            </ul>
-          </div>
-
-        </div>
-      </div>
-    </main>
-  </div>
-
-  <script>
-    function escapeHtml(s) {
-      if (s == null) return '';
-      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-    }
-
-    function showAlert(msg, type) {
-      const box = document.getElementById('alert-box');
-      box.className = `alert alert-${type}`;
-      box.textContent = msg;
-      box.style.display = 'block';
-      setTimeout(() => { box.style.display = 'none'; }, 5000);
-    }
-
-    /* ── Drag & drop ── */
-    const dropZone   = document.getElementById('drop-zone');
-    const fileInput  = document.getElementById('file-input');
-    const dropLabel  = document.getElementById('drop-label');
-
-    fileInput.addEventListener('change', () => {
-      if (fileInput.files[0]) dropLabel.textContent = fileInput.files[0].name;
-    });
-
-    dropZone.addEventListener('dragover',  (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); });
-    dropZone.addEventListener('dragleave', ()  => dropZone.classList.remove('drag-over'));
-    dropZone.addEventListener('drop', (e) => {
-      e.preventDefault();
-      dropZone.classList.remove('drag-over');
-      const file = e.dataTransfer.files[0];
-      if (file) {
-        const dt = new DataTransfer();
-        dt.items.add(file);
-        fileInput.files = dt.files;
-        dropLabel.textContent = file.name;
-      }
-    });
-
-    /* ── Upload ── */
-    document.getElementById('upload-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const btn    = document.getElementById('upload-btn');
-      const prog   = document.getElementById('progress-wrap');
-      const bar    = document.getElementById('progress-bar');
-
-      if (!fileInput.files[0]) { showAlert('Please select a file.', 'error'); return; }
-
-      btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span> Ingesting…';
-      prog.style.display = 'block';
-
-      // Animate indeterminate progress
-      let pct = 0;
-      const ticker = setInterval(() => {
-        pct = Math.min(pct + Math.random() * 8, 88);
-        bar.style.width = pct + '%';
-      }, 400);
-
-      const formData = new FormData(e.target);
-      formData.set('file', fileInput.files[0]);
+    async function openReader(docId, docTitle) {
+      _readerDocId = docId;
+      _readerPages = [];
+      _readerIndex = -1;
+      document.getElementById('reader-doc-title').textContent = docTitle;
+      document.getElementById('reader-panel').style.display = 'block';
+      document.getElementById('reader-page-list').innerHTML = '<div style="padding:0.6rem 0.75rem; color:var(--text-muted);">Loading pages...</div>';
+      document.getElementById('reader-rendered').innerHTML = '';
+      document.getElementById('reader-raw').textContent = '';
+      document.getElementById('reader-status').textContent = 'Loading pages...';
 
       try {
-        const resp = await fetch('/ingest', { method: 'POST', body: formData });
+        const resp = await fetch(`/documents/${docId}/pages`);
         const data = await resp.json();
-        clearInterval(ticker);
-        bar.style.width = '100%';
-
-        if (resp.ok) {
-          showAlert(`✓ Ingested "${escapeHtml(data.title)}" — ${data.chunk_count} chunks`, 'success');
-          e.target.reset();
-          dropLabel.textContent = 'Drop a file here or click to browse';
-          loadDocuments();
-        } else {
-          showAlert(`Error: ${data.error}`, 'error');
-        }
-      } catch (err) {
-        clearInterval(ticker);
-        showAlert(`Network error: ${err.message}`, 'error');
-      } finally {
-        btn.disabled = false;
-        btn.textContent = 'Upload & Ingest';
-        setTimeout(() => { prog.style.display = 'none'; bar.style.width = '0%'; }, 800);
-      }
-    });
-
-    /* ── Document list ── */
-    async function loadDocuments() {
-      const list = document.getElementById('doc-list');
-      try {
-        const resp = await fetch('/documents');
-        const docs = await resp.json();
-
-        document.getElementById('doc-count').textContent = `(${docs.length})`;
-
-        if (!docs.length) {
-          list.innerHTML = '<li style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0.75rem;">No documents yet.</li>';
+        if (!resp.ok) {
+          document.getElementById('reader-page-list').innerHTML = '<div style="padding:0.6rem 0.75rem; color:var(--danger);">Failed to load pages.</div>';
           return;
         }
 
-        list.innerHTML = docs.map(doc => `
-          <li class="doc-item" data-id="${escapeHtml(doc.id)}">
-            <div class="doc-item-info">
-              <div class="doc-item-title">${escapeHtml(doc.title)}</div>
-              <div class="doc-item-meta">${escapeHtml(doc.author || '—')} ${doc.date_published ? '· ' + escapeHtml(doc.date_published) : ''}</div>
-            </div>
-            <div class="doc-item-actions">
-              <button class="btn btn-danger btn-sm" onclick="deleteDoc('${escapeHtml(doc.id)}', this)">Delete</button>
-            </div>
-          </li>
-        `).join('');
+        _readerPages = data.pages || [];
+        if (!_readerPages.length) {
+          document.getElementById('reader-page-list').innerHTML = '<div style="padding:0.6rem 0.75rem; color:var(--text-muted);">No extracted pages found.</div>';
+          document.getElementById('reader-status').textContent = 'No pages';
+          return;
+        }
+
+        renderReaderPageList();
+        await loadReaderPage(_readerPages[0]);
+        document.getElementById('reader-panel').scrollIntoView({ behavior: 'smooth' });
       } catch {
-        list.innerHTML = '<li style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0.75rem;">Failed to load documents.</li>';
+        document.getElementById('reader-page-list').innerHTML = '<div style="padding:0.6rem 0.75rem; color:var(--danger);">Network error loading pages.</div>';
       }
     }
 
-    async function deleteDoc(id, btn) {
-      if (!confirm('Delete this document and all its chunks?')) return;
-      btn.disabled = true;
-      btn.textContent = '…';
+    function closeReader() {
+      _readerDocId = null;
+      _readerPages = [];
+      _readerIndex = -1;
+      document.getElementById('reader-panel').style.display = 'none';
+    }
+
+    function renderReaderPageList() {
+      const root = document.getElementById('reader-page-list');
+      root.innerHTML = _readerPages.map((pageNumber, idx) => {
+        const active = idx === _readerIndex;
+        const bg = active ? 'var(--bg-hover)' : 'transparent';
+        const color = active ? 'var(--text)' : 'var(--text-muted)';
+        return `<button type="button" onclick="loadReaderPage(${pageNumber})" style="width:100%; text-align:left; border:none; background:${bg}; color:${color}; padding:0.55rem 0.75rem; border-bottom:1px solid var(--border); cursor:pointer;">Page ${pageNumber}</button>`;
+      }).join('');
+    }
+
+    async function loadReaderPage(pageNumber) {
+      if (!_readerDocId) return;
+      _readerIndex = _readerPages.indexOf(pageNumber);
+      renderReaderPageList();
+      document.getElementById('reader-status').textContent = `Loading page ${pageNumber}...`;
+
       try {
-        const resp = await fetch(`/documents/${id}`, { method: 'DELETE' });
-        if (resp.ok) {
-          document.querySelector(`[data-id="${id}"]`)?.remove();
-          const remaining = document.querySelectorAll('#doc-list .doc-item').length;
-          document.getElementById('doc-count').textContent = `(${remaining})`;
-          if (!remaining) {
-            document.getElementById('doc-list').innerHTML =
-              '<li style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0.75rem;">No documents yet.</li>';
-          }
-        } else {
-          const d = await resp.json();
-          showAlert(`Delete failed: ${d.error}`, 'error');
-          btn.disabled = false;
-          btn.textContent = 'Delete';
+        const resp = await fetch(`/documents/${_readerDocId}/pages/${pageNumber}`);
+        const data = await resp.json();
+        if (!resp.ok) {
+          document.getElementById('reader-status').textContent = `Failed to load page ${pageNumber}.`;
+          return;
         }
-      } catch (err) {
-        showAlert(`Network error: ${err.message}`, 'error');
-        btn.disabled = false;
-        btn.textContent = 'Delete';
+
+        const raw = data.raw_text || '';
+        document.getElementById('reader-raw').textContent = raw;
+        document.getElementById('reader-rendered').innerHTML = marked.parse(raw);
+        document.getElementById('reader-status').textContent = `Page ${data.page_number} of ${data.total_pages}`;
+
+        const prevBtn = document.getElementById('reader-prev');
+        const nextBtn = document.getElementById('reader-next');
+        prevBtn.disabled = _readerIndex <= 0;
+        nextBtn.disabled = _readerIndex < 0 || _readerIndex >= _readerPages.length - 1;
+      } catch {
+        document.getElementById('reader-status').textContent = `Network error loading page ${pageNumber}.`;
       }
+    }
+
+    function stepReader(step) {
+      if (!_readerPages.length || _readerIndex < 0) return;
+      const nextIndex = _readerIndex + step;
+      if (nextIndex < 0 || nextIndex >= _readerPages.length) return;
+      loadReaderPage(_readerPages[nextIndex]);
     }
 
     loadDocuments();
