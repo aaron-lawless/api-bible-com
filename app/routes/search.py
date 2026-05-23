@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional, List
 
 import openai
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, field_validator
@@ -25,12 +25,17 @@ search_router = APIRouter()
 async def search(
     request: Request,
     query: str = Query(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    session_id: Optional[str] = Cookie(default=None),
 ):
     """Server-Sent Events endpoint. Streams pipeline thinking steps then the final answer."""
-    if "session_id" not in request.session:
-        request.session["session_id"] = str(uuid.uuid4())
-    session_id = request.session["session_id"]
+    new_session = session_id is None
+    if new_session:
+        session_id = str(uuid.uuid4())
+
+    headers = {"X-Accel-Buffering": "no"}
+    if new_session:
+        headers["Set-Cookie"] = f"session_id={session_id}; Path=/; HttpOnly; SameSite=Lax"
 
     return EventSourceResponse(
         answer_question(
@@ -39,7 +44,7 @@ async def search(
             db=db,
             session_id=session_id,
         ),
-        headers={"X-Accel-Buffering": "no"},
+        headers=headers,
     )
 
 @search_router.get("/questions")
