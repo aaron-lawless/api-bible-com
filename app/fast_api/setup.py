@@ -89,6 +89,6 @@ async def start_app(lifespan: callable):
 
     register_middleware(app)
     register_routes(app)
-    config = uvicorn.Config(app, host='0.0.0.0', port=8080)
+    config = uvicorn.Config(app, host='0.0.0.0', port=8080, proxy_headers=True, forwarded_allow_ips="*")
     server = uvicorn.Server(config)
     await server.serve()
