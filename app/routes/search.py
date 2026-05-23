@@ -38,7 +38,8 @@ async def search(
             api_key=Config.OPENAI_API_KEY,
             db=db,
             session_id=session_id,
-        )
+        ),
+        headers={"X-Accel-Buffering": "no"},
     )
 
 @search_router.get("/questions")
