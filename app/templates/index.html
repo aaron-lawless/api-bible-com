@@ -51,6 +51,10 @@
     const input     = document.getElementById('chat-input');
     const sendBtn   = document.getElementById('send-btn');
 
+    // Persist session_id across requests so conversation history is maintained.
+    // Stored in sessionStorage so it is scoped to this browser tab.
+    let sessionId = sessionStorage.getItem('search_session_id') || null;
+
     function escapeHtml(s) {
       if (s == null) return '';
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -101,8 +105,15 @@
       const aiBubble = appendTyping();
       const thinkingLines = [];
 
-      const url = '/search?query=' + encodeURIComponent(query);
+      let url = '/search?query=' + encodeURIComponent(query);
+      if (sessionId) url += '&session_id=' + encodeURIComponent(sessionId);
       const es = new EventSource(url);
+
+      es.addEventListener('session', (e) => {
+        const { session_id } = JSON.parse(e.data);
+        sessionId = session_id;
+        sessionStorage.setItem('search_session_id', session_id);
+      });
 
       es.addEventListener('thinking', (e) => {
         const { message } = JSON.parse(e.data);
