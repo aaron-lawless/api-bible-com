@@ -1,7 +1,8 @@
+import json
 import logging
 import uuid
 from pathlib import Path
-from typing import Optional, List
+from typing import AsyncGenerator, Optional, List
 
 import openai
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request
@@ -20,6 +21,18 @@ from app.services.search.search import answer_question
 logger = logging.getLogger(__name__)
 
 search_router = APIRouter()
+
+
+async def _prepend_session_event(
+    session_id: str,
+    generator: AsyncGenerator,
+) -> AsyncGenerator:
+    """Yield a 'session' event first so clients can capture the session_id from the
+    SSE stream (EventSource does not expose response headers to JavaScript)."""
+    yield {"event": "session", "data": json.dumps({"session_id": session_id})}
+    async for event in generator:
+        yield event
+
 
 @search_router.get("/search")
 async def search(
@@ -41,17 +54,18 @@ async def search(
     headers = {"X-Accel-Buffering": "no"}
     if new_session:
         headers["Set-Cookie"] = f"session_id={session_id}; Path=/; HttpOnly; SameSite=Lax"
-    # Always expose the session_id in a response header so cross-origin frontends
-    # can read it and pass it back as ?session_id= on subsequent requests.
-    headers["X-Session-Id"] = session_id
+
     logger.info(f"Received search request. session_id={session_id} query={query}")
 
     return EventSourceResponse(
-        answer_question(
-            query=query,
-            api_key=Config.OPENAI_API_KEY,
-            db=db,
-            session_id=session_id,
+        _prepend_session_event(
+            session_id,
+            answer_question(
+                query=query,
+                api_key=Config.OPENAI_API_KEY,
+                db=db,
+                session_id=session_id,
+            ),
         ),
         headers=headers,
     )
