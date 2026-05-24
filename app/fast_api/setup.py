@@ -67,6 +67,7 @@ def register_middleware(app: FastAPI):
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Session-Id"],
     )
 
 async def start_app(lifespan: callable):

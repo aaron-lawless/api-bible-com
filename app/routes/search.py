@@ -27,8 +27,13 @@ async def search(
     query: str = Query(...),
     db: Session = Depends(get_db),
     session_id: Optional[str] = Cookie(default=None),
+    session_id_param: Optional[str] = Query(default=None, alias="session_id"),
 ):
     """Server-Sent Events endpoint. Streams pipeline thinking steps then the final answer."""
+    # Allow the frontend to pass session_id as a query parameter when cross-origin
+    # cookie persistence is blocked by SameSite=Lax restrictions.
+    if session_id is None and session_id_param:
+        session_id = session_id_param
     new_session = session_id is None
     if new_session:
         session_id = str(uuid.uuid4())
@@ -36,6 +41,10 @@ async def search(
     headers = {"X-Accel-Buffering": "no"}
     if new_session:
         headers["Set-Cookie"] = f"session_id={session_id}; Path=/; HttpOnly; SameSite=Lax"
+    # Always expose the session_id in a response header so cross-origin frontends
+    # can read it and pass it back as ?session_id= on subsequent requests.
+    headers["X-Session-Id"] = session_id
+    logger.info(f"Received search request. session_id={session_id} query={query}")
 
     return EventSourceResponse(
         answer_question(
