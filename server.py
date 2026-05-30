@@ -7,7 +7,7 @@ from fastapi import FastAPI
 
 from app.fast_api.prometheus import start_prometheus_app
 from app.fast_api.setup import start_app
-from db.database import close_database_connections, verify_database_connection
+from db.database import close_database_connections, create_tables, verify_database_connection
 from pyrocket.logger_config import configure_access_logging, configure_app_logging
 
 
@@ -25,6 +25,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     except Exception as e:
         logger.exception("Failed to verify database connection during startup")
         raise
+
+    # Ensure all ORM-managed tables exist (no-op if already present)
+    import app.models.database  # noqa: F401 – registers all models with Base.metadata
+    create_tables()
 
     yield
 

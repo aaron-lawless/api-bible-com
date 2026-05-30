@@ -152,3 +152,37 @@ class ConversationSession(Base):
         nullable=False,
     )
 
+class IngestJob(Base):
+    """Tracks the status of a background ingestion job."""
+
+    __tablename__ = "ingest_jobs"
+
+    job_id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # pending | running | done | failed
+    status = Column(Text, nullable=False, default="pending")
+    title = Column(Text, nullable=False)
+    error = Column(Text, nullable=True)
+    document_id = Column(Uuid(as_uuid=True), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    def to_dict(self):
+        return {
+            "job_id": str(self.job_id),
+            "status": self.status,
+            "title": self.title,
+            "error": self.error,
+            "document_id": str(self.document_id) if self.document_id else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+

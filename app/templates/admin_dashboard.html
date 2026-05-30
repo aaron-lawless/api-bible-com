@@ -40,6 +40,10 @@
                 <div class="form-group"><label>Date Published</label><input type="date" name="date_published" /></div>
                 <div class="form-group"><label>Summary *</label><textarea name="summary" rows="3" required style="width:100%;resize:vertical;"></textarea></div>
                 <div class="form-group"><label>Focus Area</label><input type="text" name="focus_area" /></div>
+                <div class="form-group" style="display:flex; align-items:center; gap:0.5rem;">
+                  <input type="checkbox" name="ai_toc" id="ai-toc-pdf" value="true" style="width:auto; cursor:pointer;" />
+                  <label for="ai-toc-pdf" style="margin:0; cursor:pointer;">Generate TOC with AI <span style="font-size:0.76rem; color:var(--text-muted);">(instead of parsing markdown headings)</span></label>
+                </div>
                 <button type="submit" class="btn btn-primary" id="pdf-btn">Upload and Ingest</button>
               </form>
             </div>
@@ -54,6 +58,10 @@
                 <div class="form-group"><label>Date Published</label><input type="date" name="date_published" /></div>
                 <div class="form-group"><label>Summary *</label><textarea name="summary" rows="3" required style="width:100%;resize:vertical;"></textarea></div>
                 <div class="form-group"><label>Focus Area</label><input type="text" name="focus_area" /></div>
+                <div class="form-group" style="display:flex; align-items:center; gap:0.5rem;">
+                  <input type="checkbox" name="ai_toc" id="ai-toc-url" value="true" style="width:auto; cursor:pointer;" />
+                  <label for="ai-toc-url" style="margin:0; cursor:pointer;">Generate TOC with AI <span style="font-size:0.76rem; color:var(--text-muted);">(instead of parsing markdown headings)</span></label>
+                </div>
                 <button type="submit" class="btn btn-primary" id="url-btn">Scrape and Ingest</button>
               </form>
             </div>
@@ -192,7 +200,7 @@
       }
 
       btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span> Ingesting...';
+      btn.innerHTML = '<span class="spinner"></span> Uploading...';
       prog.style.display = 'block';
 
       let pct = 0;
@@ -209,11 +217,11 @@
         const data = await resp.json();
         clearInterval(ticker);
         bar.style.width = '100%';
-        if (resp.ok) {
-          showAlert('pdf-alert', `Ingested "${data.title}" (${data.total_pages} pages).`, 'success');
+        if (resp.status === 202) {
           e.target.reset();
           dropLabel.textContent = 'Drop a file here or click to browse';
-          loadDocuments();
+          showAlert('pdf-alert', `"${escapeHtml(data.title)}" queued (${data.total_pages} pages). Processing in background…`, 'success');
+          pollJob(data.job_id, 'pdf-alert', loadDocuments);
         } else {
           showAlert('pdf-alert', `Error: ${data.detail || data.error}`, 'error');
         }
@@ -236,10 +244,10 @@
       try {
         const resp = await fetch('/ingest/url', { method: 'POST', body: new FormData(e.target) });
         const data = await resp.json();
-        if (resp.ok) {
-          showAlert('url-alert', `Ingested "${data.title}".`, 'success');
+        if (resp.status === 202) {
           e.target.reset();
-          loadDocuments();
+          showAlert('url-alert', `"${escapeHtml(data.title)}" queued. Processing in background…`, 'success');
+          pollJob(data.job_id, 'url-alert', loadDocuments);
         } else {
           showAlert('url-alert', `Error: ${data.detail || data.error}`, 'error');
         }
@@ -537,6 +545,32 @@
         btn.disabled = false;
         btn.textContent = 'Save';
       }
+    }
+
+    function pollJob(jobId, alertId, onDone) {
+      const STATUS_LABELS = { pending: 'Queued…', running: 'Processing…' };
+      const interval = setInterval(async () => {
+        try {
+          const resp = await fetch(`/ingest/jobs/${jobId}`);
+          if (!resp.ok) return; // transient error, keep polling
+          const data = await resp.json();
+          const box = document.getElementById(alertId);
+          if (data.status === 'done') {
+            clearInterval(interval);
+            box.className = 'alert alert-success';
+            box.textContent = `"${escapeHtml(data.title)}" ingested successfully.`;
+            box.style.display = 'block';
+            if (onDone) onDone();
+          } else if (data.status === 'failed') {
+            clearInterval(interval);
+            box.className = 'alert alert-error';
+            box.textContent = `Ingestion failed: ${data.error || 'Unknown error'}`;
+            box.style.display = 'block';
+          } else if (box.style.display !== 'none') {
+            box.textContent = `"${escapeHtml(data.title)}" — ${STATUS_LABELS[data.status] || data.status}`;
+          }
+        } catch { /* network hiccup — keep polling */ }
+      }, 4000);
     }
 
     loadDocuments();

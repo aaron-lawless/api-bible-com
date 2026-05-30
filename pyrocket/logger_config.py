@@ -137,6 +137,14 @@ def configure_app_logging() -> logging.Logger:
     root_handler.setFormatter(UvicornLogFormatter())
     root_logger.addHandler(root_handler)
 
+    # Allow INFO from app modules so ingestion/AI logs are visible
+    app_logger = logging.getLogger("app")
+    app_logger.setLevel(logging.INFO)
+    app_handler = logging.StreamHandler()
+    app_handler.setFormatter(UvicornLogFormatter())
+    app_logger.addHandler(app_handler)
+    app_logger.propagate = False
+
     return logger
 
 def configure_access_logging() -> logging.Logger:

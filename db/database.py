@@ -68,3 +68,14 @@ def close_database_connections() -> None:
     except Exception as exc:
         logger.exception("Failed to dispose database engine")
         raise RuntimeError("Failed to close database connections") from exc
+
+# Helper function to create database tables based on SQLAlchemy models, with logging
+# This should only be called for scripts or application startup if tables are not created, it will create one
+def create_tables() -> None:
+    """Create any tables that do not yet exist.
+
+    Must be called after all ORM models have been imported so that
+    Base.metadata is fully populated before create_all runs.
+    """
+    Base.metadata.create_all(bind=engine, checkfirst=True)
+    logger.info("Database tables verified / created")
