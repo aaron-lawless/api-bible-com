@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from db.database import get_db
 from app.models.database import Document, DocumentPage, DocumentStructure
-from app.models.request import StructureIn
+from app.models.request import StructureIn, StructureTitlePatch
 
 logger = logging.getLogger(__name__)
 
@@ -177,6 +177,28 @@ def update_structure(
     entry.level = body.level
     db.commit()
     db.refresh(entry)
+    return entry.to_dict()
+
+
+@documents_router.patch("/documents/{doc_id}/structures/{struct_id}")
+def patch_structure_title(
+    doc_id: uuid.UUID,
+    struct_id: uuid.UUID,
+    body: StructureTitlePatch,
+    db: Session = Depends(get_db),
+):
+    entry = db.get(DocumentStructure, struct_id)
+    if entry is None or entry.document_id != doc_id:
+        raise HTTPException(status_code=404, detail="Structure entry not found")
+
+    title = body.section_title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="section_title cannot be empty")
+
+    entry.section_title = title
+    db.commit()
+    db.refresh(entry)
+    logger.info("Updated section_title for structure id=%s", struct_id)
     return entry.to_dict()
 
 

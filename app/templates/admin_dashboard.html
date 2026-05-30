@@ -334,11 +334,12 @@
         }
         tbody.innerHTML = rows.map(r => `
           <tr data-struct-id="${escapeHtml(r.id)}" style="border-bottom:1px solid var(--border);">
-            <td style="padding:0.4rem 0.5rem;">${escapeHtml(r.section_title)}</td>
+            <td style="padding:0.4rem 0.5rem;" class="toc-title-cell" data-struct-id="${escapeHtml(r.id)}" data-original="${escapeHtml(r.section_title)}">${escapeHtml(r.section_title)}</td>
             <td style="padding:0.4rem 0.5rem;">${r.start_page}</td>
             <td style="padding:0.4rem 0.5rem;">${r.end_page}</td>
             <td style="padding:0.4rem 0.5rem;">${r.level}</td>
-            <td style="padding:0.4rem 0.5rem; text-align:right;">
+            <td style="padding:0.4rem 0.5rem; text-align:right; white-space:nowrap;">
+              <button class="btn btn-ghost btn-sm" onclick="editStructureTitle('${escapeHtml(r.id)}', this)">Edit</button>
               <button class="btn btn-danger btn-sm" onclick="deleteStructure('${escapeHtml(r.id)}', this)">X</button>
             </td>
           </tr>
@@ -482,6 +483,60 @@
       const nextIndex = _readerIndex + step;
       if (nextIndex < 0 || nextIndex >= _readerPages.length) return;
       loadReaderPage(_readerPages[nextIndex]);
+    }
+
+    function editStructureTitle(structId, btn) {
+      const td = document.querySelector(`.toc-title-cell[data-struct-id="${structId}"]`);
+      if (!td || td.querySelector('input')) return; // already editing
+
+      const original = td.dataset.original;
+      const actionsCell = btn.closest('td');
+
+      td.innerHTML = `<input type="text" value="${escapeHtml(original)}" style="width:100%; box-sizing:border-box;" />`;
+      const input = td.querySelector('input');
+      input.focus();
+      input.select();
+
+      actionsCell.innerHTML = `
+        <button class="btn btn-primary btn-sm" onclick="saveStructureTitle('${structId}', this)">Save</button>
+        <button class="btn btn-ghost btn-sm" onclick="loadToc()">Cancel</button>
+      `;
+    }
+
+    async function saveStructureTitle(structId, btn) {
+      if (!_tocDocId) return;
+      const td = document.querySelector(`.toc-title-cell[data-struct-id="${structId}"]`);
+      const input = td?.querySelector('input');
+      if (!input) return;
+
+      const newTitle = input.value.trim();
+      if (!newTitle) {
+        showAlert('toc-alert', 'Section title cannot be empty.', 'error');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = '...';
+
+      try {
+        const resp = await fetch(`/documents/${_tocDocId}/structures/${structId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ section_title: newTitle }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          showAlert('toc-alert', `Error: ${data.detail || data.error}`, 'error');
+          btn.disabled = false;
+          btn.textContent = 'Save';
+          return;
+        }
+        await loadToc();
+      } catch (err) {
+        showAlert('toc-alert', `Network error: ${err.message}`, 'error');
+        btn.disabled = false;
+        btn.textContent = 'Save';
+      }
     }
 
     loadDocuments();

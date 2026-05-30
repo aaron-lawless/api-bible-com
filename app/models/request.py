@@ -14,3 +14,7 @@ class StructureIn(BaseModel):
         if self.end_page < self.start_page:
             raise ValueError("end_page must be >= start_page")
         return self
+
+
+class StructureTitlePatch(BaseModel):
+    section_title: str
