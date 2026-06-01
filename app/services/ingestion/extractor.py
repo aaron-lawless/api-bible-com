@@ -30,6 +30,9 @@ _HEADING_STYLE_MAP = {
 # Regex to find markdown headings: # … through ####
 _HEADING_RE = re.compile(r"^(#{1,4})\s+(.+)$", re.MULTILINE)
 
+# pymupdf4llm emits this placeholder for every image it skips
+_IMAGE_PLACEHOLDER_RE = re.compile(r"\*\*==>\s+picture\s+\[\d+\s*x\s*\d+\]\s+intentionally omitted", re.IGNORECASE)
+
 
 def _docx_to_markdown(data: bytes) -> str:
     """Convert DOCX bytes to markdown using paragraph styles for heading detection."""
@@ -81,7 +84,7 @@ def extract_pages(filename: str, data: bytes) -> list[tuple[int, str]]:
             elif isinstance(chunk, str):
                 text = chunk
 
-            text = text.strip()
+            text = _IMAGE_PLACEHOLDER_RE.sub("", text).strip()
             if text:
                 pages.append((page_number, text))
 
