@@ -5,7 +5,7 @@ import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
 import openai
 import spacy
@@ -176,6 +176,7 @@ def _run_pipeline(
     db: Session,
     session_id: str,
     on_thinking: callable,  # fn(message: str) -> None
+    bible_verse_context: Optional[str] = None,
 ) -> dict:
     """Pipeline has 3 tiers:
     1. Exact cache match on normalized question hash
@@ -210,17 +211,30 @@ def _run_pipeline(
         question_hash = hashlib.sha256(normalized_query.encode()).hexdigest()
         verse_ref = (extract_verse_reference(effective_query) or [None])[0]
 
+        # Use verse_ref from the query itself, or from bible_verse_context if provided.
+        # Do NOT append context to effective_query -- keep it clean for caching/embeddings.
+        # Instead, pass it as a soft hint at synthesis so the LLM can use it if relevant.
+        verse_context_hint: str | None = None
+        if not verse_ref and bible_verse_context:
+            verse_ref = bible_verse_context.strip().lower()
+            verse_context_hint = verse_ref
+            logger.info("[pipeline] Using verse reference from context: %r", verse_ref)
+
         # Option 1: Cache hit -- return cached answer without running pipeline (Fast and Cheapest)
         # Question hash matches exactly with a previous query that had no cache hit (i.e. was not previously served from cache)
 
         # -- Cache check -----------------------------------------------------
         on_thinking("Thinking...")
 
-        exact_row = db.execute(
+        exact_stmt = (
             select(QueryCache)
             .where(QueryCache.question_hash == question_hash, QueryCache.cache_hit == False)  # noqa: E712
-            .limit(1)
-        ).scalar_one_or_none()
+        )
+        if verse_ref is not None:
+            exact_stmt = exact_stmt.where(QueryCache.verse_reference == verse_ref)
+        else:
+            exact_stmt = exact_stmt.where(QueryCache.verse_reference.is_(None))
+        exact_row = db.execute(exact_stmt.limit(1)).scalar_one_or_none()
 
         if exact_row:
             on_thinking("Found previous answer.")
@@ -391,6 +405,8 @@ def _run_pipeline(
                 )
 
             user_message = f"Question: {effective_query}\n\nDocument excerpts:\n\n{context_text}"
+            if verse_context_hint:
+                user_message += f"\n\n[Page context: the user is currently viewing {verse_context_hint}. Use this only if relevant to the question.]"
         else:
             # Multi-source: distil each in parallel then synthesise
             briefs = {}
@@ -430,6 +446,8 @@ def _run_pipeline(
             ]
             context_text = "\n\n---\n\n".join(context_parts)
             user_message = f"Question: {effective_query}\n\nResearch briefs from multiple sources:\n\n{context_text}"
+            if verse_context_hint:
+                user_message += f"\n\n[Page context: the user is currently viewing {verse_context_hint}. Use this only if relevant to the question.]"
 
         completion = client.chat.completions.create(
             model=Config.COMPLETION_MODEL,
@@ -504,6 +522,7 @@ async def answer_question(
     api_key: str | None,
     db: Session,
     session_id: str,
+    bible_verse_context: Optional[str] = None,
 ) -> AsyncGenerator[dict, None]:
     """Async generator that yields SSE-ready dicts.
 
@@ -540,6 +559,7 @@ async def answer_question(
                 db=db,
                 session_id=session_id,
                 on_thinking=_on_thinking,
+                bible_verse_context=bible_verse_context
             )
             result_container.append(result)
         except Exception as exc:
