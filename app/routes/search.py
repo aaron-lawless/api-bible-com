@@ -41,6 +41,7 @@ async def search(
     db: Session = Depends(get_db),
     session_id: Optional[str] = Cookie(default=None),
     session_id_param: Optional[str] = Query(default=None, alias="session_id"),
+    bible_verse_context: Optional[str] = Query(default=None, alias="bible_verse_context")
 ):
     """Server-Sent Events endpoint. Streams pipeline thinking steps then the final answer."""
     # Allow the frontend to pass session_id as a query parameter when cross-origin
@@ -55,7 +56,7 @@ async def search(
     if new_session:
         headers["Set-Cookie"] = f"session_id={session_id}; Path=/; HttpOnly; SameSite=Lax"
 
-    logger.info(f"Received search request. session_id={session_id} query={query}")
+    logger.info(f"Received search request. session_id={session_id} query={query} bible_verse_context={bible_verse_context}")
 
     return EventSourceResponse(
         _prepend_session_event(
@@ -65,6 +66,7 @@ async def search(
                 api_key=Config.OPENAI_API_KEY,
                 db=db,
                 session_id=session_id,
+                bible_verse_context=bible_verse_context
             ),
         ),
         headers=headers,
