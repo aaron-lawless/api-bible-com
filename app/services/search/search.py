@@ -216,7 +216,10 @@ def _run_pipeline(
         # Instead, pass it as a soft hint at synthesis so the LLM can use it if relevant.
         verse_context_hint: str | None = None
         if not verse_ref and bible_verse_context:
-            verse_ref = bible_verse_context.strip().lower()
+            # Try structured extraction first (e.g. "Judges 3:10" → "judges 3:10").
+            # Fall back to simple normalisation for chapter-only refs (e.g. "Judges 3" → "judges 3").
+            extracted = extract_verse_reference(bible_verse_context)
+            verse_ref = extracted[0] if extracted else bible_verse_context.strip().lower()
             verse_context_hint = verse_ref
             logger.info("[pipeline] Using verse reference from context: %r", verse_ref)
 
