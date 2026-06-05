@@ -26,7 +26,7 @@ from app.services.search.constants import (
     ROUTING_PROMPT,
     SYSTEM_PROMPT,
 )
-from app.services.search.utils import _distill_source, _extract_page_text, _load_history, _rewrite_with_history, extract_verse_reference, normalize_question
+from app.services.search.utils import _distill_source, _extract_page_text, _load_history, _rewrite_with_history, extract_verse_reference, normalize_question, verse_refs_overlap
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +209,13 @@ def _run_pipeline(
         # Note if there isn't history the query is unchanged
         normalized_query = normalize_question(effective_query)
         question_hash = hashlib.sha256(normalized_query.encode()).hexdigest()
-        verse_ref = (extract_verse_reference(effective_query) or [None])[0]
+        extracted_verse = extract_verse_reference(effective_query)
+        #We only take the first verse reference in the question for caching and retrieval
+        verse_ref = extracted_verse[0] if extracted_verse else None 
+
+        # Chapter-level prefix (e.g. "ruth 1" from "ruth 1:3-4") used for cache filtering
+        # so that any cached answer for the same chapter is considered a hit.
+        verse_chapter_prefix = verse_ref.split(':')[0].strip() if verse_ref and ':' in verse_ref else verse_ref
 
         # Use verse_ref from the query itself, or from bible_verse_context if provided.
         # Do NOT append context to effective_query -- keep it clean for caching/embeddings.
@@ -220,6 +226,8 @@ def _run_pipeline(
             # Fall back to simple normalisation for chapter-only refs (e.g. "Judges 3" → "judges 3").
             extracted = extract_verse_reference(bible_verse_context)
             verse_ref = extracted[0] if extracted else bible_verse_context.strip().lower()
+            # Assingn chapter-level prefix for cache filtering, same as above
+            verse_chapter_prefix = verse_ref.split(':')[0].strip() if verse_ref and ':' in verse_ref else verse_ref
             verse_context_hint = verse_ref
             logger.info("[pipeline] Using verse reference from context: %r", verse_ref)
 
@@ -233,11 +241,16 @@ def _run_pipeline(
             select(QueryCache)
             .where(QueryCache.question_hash == question_hash, QueryCache.cache_hit == False)  # noqa: E712
         )
-        if verse_ref is not None:
-            exact_stmt = exact_stmt.where(QueryCache.verse_reference == verse_ref)
+        if verse_chapter_prefix is not None:
+            # Pre-filter to same chapter in SQL, then check verse-range overlap in Python
+            exact_stmt = exact_stmt.where(QueryCache.verse_reference.like(f"{verse_chapter_prefix}:%"))
         else:
             exact_stmt = exact_stmt.where(QueryCache.verse_reference.is_(None))
-        exact_row = db.execute(exact_stmt.limit(1)).scalar_one_or_none()
+        exact_candidates = db.execute(exact_stmt).scalars().all()
+        # For verse-ref queries, keep only candidates whose verse range overlaps the query range
+        if verse_ref is not None:
+            exact_candidates = [r for r in exact_candidates if r.verse_reference and verse_refs_overlap(verse_ref, r.verse_reference)]
+        exact_row = exact_candidates[0] if exact_candidates else None
 
         if exact_row:
             on_thinking("Found previous answer.")
@@ -271,15 +284,25 @@ def _run_pipeline(
             .order_by(distance_expr)
             .limit(1)
         )
-        # If the question has a verse reference, we only want to compare against cached questions with the same verse reference. 
-        # If it doesn't have a verse reference, we only want to compare against cached questions that also don't have a verse reference. This prevents us from accidentally returning a cached answer about a different verse that happens to have a similar embedding.
-        if verse_ref is not None:
-            vcache_stmt = vcache_stmt.where(QueryCache.verse_reference == verse_ref)
+        # If the question has a verse reference, we only want to compare against cached questions within
+        # the same chapter (e.g. "ruth 1:3-4" matches any cache entry for "ruth 1:x").
+        # If it doesn't have a verse reference, we only want to compare against cached questions that also
+        # don't have a verse reference, to avoid returning answers about a different verse.
+        if verse_chapter_prefix is not None:
+            # Pre-filter to same chapter in SQL, fetch top candidates, then overlap-check in Python
+            vcache_stmt = vcache_stmt.where(QueryCache.verse_reference.like(f"{verse_chapter_prefix}:%")).limit(20)
         else:
             # For questions without verse refs
-            vcache_stmt = vcache_stmt.where(QueryCache.verse_reference.is_(None))
+            vcache_stmt = vcache_stmt.where(QueryCache.verse_reference.is_(None)).limit(1)
 
-        vcache_row = db.execute(vcache_stmt).first()
+        vcache_candidates = db.execute(vcache_stmt).all()
+        # For verse-ref queries, keep only candidates whose verse range overlaps the query range
+        if verse_ref is not None:
+            vcache_candidates = [
+                (cached, dist) for cached, dist in vcache_candidates
+                if cached.verse_reference and verse_refs_overlap(verse_ref, cached.verse_reference)
+            ]
+        vcache_row = vcache_candidates[0] if vcache_candidates else None
         if vcache_row:
             cached, distance = vcache_row
             similarity = 1 - float(distance)
