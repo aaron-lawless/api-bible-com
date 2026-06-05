@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from config.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -14,14 +15,8 @@ admin_router = APIRouter(prefix="/admin", include_in_schema=False)
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
-_ADMIN_PASSWORD_ENV = "ADMIN_PASSWORD"
-
-
-def _check_password(entered: str) -> bool:
-    expected = os.environ.get(_ADMIN_PASSWORD_ENV, "")
-    if not expected:
-        return False
-    return hmac.compare_digest(entered, expected)
+# Setting the admin password from environment configuration.
+ADMIN_PASSWORD = Config.ADMIN_PASSWORD
 
 
 @admin_router.get("/login", response_class=HTMLResponse)
@@ -35,7 +30,7 @@ def login_get(request: Request):
 
 @admin_router.post("/login", response_class=HTMLResponse)
 def login_post(request: Request, password: str = Form(...)):
-    if _check_password(password):
+    if password == ADMIN_PASSWORD:
         request.session["admin_authenticated"] = True
         logger.info("Admin login successful")
         return RedirectResponse("/admin/", status_code=302)

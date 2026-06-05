@@ -1,83 +1,76 @@
+import json
 import logging
 import uuid
 from pathlib import Path
-from typing import Optional, List
+from typing import AsyncGenerator, Optional, List
 
 import openai
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
+from sse_starlette.sse import EventSourceResponse
 
-from app.config import Config
-from app.database import get_db
-from app.models import QueryCache
-from app.services.search import answer_question
-
-_templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
+from config.config import Config
+from db.database import get_db
+from app.models.database import QueryCache
+from app.services.search.search import answer_question
 
 logger = logging.getLogger(__name__)
 
 search_router = APIRouter()
 
 
-@search_router.get("/ui", response_class=HTMLResponse, include_in_schema=False)
-def search_ui(request: Request):
-    return _templates.TemplateResponse("index.html", {"request": request})
-
-# TODO: we will want to move this to a schemas.py if request models grow
-class SearchRequest(BaseModel):
-    query: str
-    top_k: int = 10
-    document_ids: Optional[List[str]] = None
-
-    @field_validator("query")
-    @classmethod
-    def query_not_empty(cls, v: str) -> str:
-        v = v.strip()
-        if not v:
-            raise ValueError("query is required")
-        return v
-
-    @field_validator("top_k")
-    @classmethod
-    def top_k_positive(cls, v: int) -> int:
-        if v < 1:
-            raise ValueError("top_k must be a positive integer")
-        return v
-
-    @field_validator("document_ids")
-    @classmethod
-    def validate_document_ids(cls, v: Optional[List[str]]) -> Optional[List[str]]:
-        if v is not None:
-            try:
-                return [str(uuid.UUID(str(d))) for d in v]
-            except ValueError:
-                raise ValueError("document_ids contains an invalid UUID")
-        return v
+async def _prepend_session_event(
+    session_id: str,
+    generator: AsyncGenerator,
+) -> AsyncGenerator:
+    """Yield a 'session' event first so clients can capture the session_id from the
+    SSE stream (EventSource does not expose response headers to JavaScript)."""
+    yield {"event": "session", "data": json.dumps({"session_id": session_id})}
+    async for event in generator:
+        yield event
 
 
-@search_router.post("/search")
-def search(body: SearchRequest, db: Session = Depends(get_db)):
-    try:
-        result = answer_question(
-            query=body.query,
-            top_k=body.top_k,
-            document_ids=body.document_ids,
-            api_key=Config.OPENAI_API_KEY,
-            db=db,
-        )
-        logger.info("Search completed for query: %s", body.query[:80])
-        return result
-    except openai.OpenAIError as exc:
-        logger.error("OpenAI error during search: %s", exc)
-        raise HTTPException(status_code=502, detail=f"OpenAI API error: {exc}")
-    except Exception as exc:
-        logger.error("Unexpected error during search: %s", exc)
-        raise HTTPException(status_code=500, detail="Internal server error")
+@search_router.get("/search")
+async def search(
+    request: Request,
+    query: str = Query(...),
+    db: Session = Depends(get_db),
+    session_id: Optional[str] = Cookie(default=None),
+    session_id_param: Optional[str] = Query(default=None, alias="session_id"),
+    bible_verse_context: Optional[str] = Query(default=None, alias="bible_verse_context")
+):
+    """Server-Sent Events endpoint. Streams pipeline thinking steps then the final answer."""
+    # Allow the frontend to pass session_id as a query parameter when cross-origin
+    # cookie persistence is blocked by SameSite=Lax restrictions.
+    if session_id is None and session_id_param:
+        session_id = session_id_param
+    new_session = session_id is None
+    if new_session:
+        session_id = str(uuid.uuid4())
 
+    headers = {"X-Accel-Buffering": "no"}
+    if new_session:
+        headers["Set-Cookie"] = f"session_id={session_id}; Path=/; HttpOnly; SameSite=Lax"
+
+    logger.info(f"Received search request. session_id={session_id} query={query} bible_verse_context={bible_verse_context}")
+
+    return EventSourceResponse(
+        _prepend_session_event(
+            session_id,
+            answer_question(
+                query=query,
+                api_key=Config.OPENAI_API_KEY,
+                db=db,
+                session_id=session_id,
+                bible_verse_context=bible_verse_context
+            ),
+        ),
+        headers=headers,
+    )
 
 @search_router.get("/questions")
 def list_questions(
@@ -141,4 +134,3 @@ def get_question_answer(query_id: str, db: Session = Depends(get_db)):
         "answer": row.response,
         "sources": row.sources or [],
     }
-

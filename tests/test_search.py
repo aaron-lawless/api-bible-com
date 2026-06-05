@@ -1,5 +1,6 @@
+import json
 import uuid
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import openai
 import pytest
@@ -12,15 +13,15 @@ MOCK_ANSWER = {
             "document_id": str(uuid.uuid4()),
             "title": "Test Book",
             "author": "Author Name",
-            "chunk_index": 0,
-            "content": "Relevant chunk content here.",
-            "score": 0.95,
+            "source": None,
+            "section_title": "Chapter 1",
+            "pages": "1?3",
         }
     ],
 }
 
 
-# ── Input validation ─────────────────────────────────────────────────────────
+# ?? Input validation ?????????????????????????????????????????????????????????
 
 
 def test_search_missing_body(client):
@@ -30,13 +31,7 @@ def test_search_missing_body(client):
 
 
 def test_search_missing_query(client):
-    resp = client.post("/search", json={"top_k": 5})
-    assert resp.status_code == 400
-    assert "error" in resp.json()
-
-
-def test_search_invalid_top_k(client):
-    resp = client.post("/search", json={"query": "What is truth?", "top_k": -1})
+    resp = client.post("/search", json={})
     assert resp.status_code == 400
     assert "error" in resp.json()
 
@@ -59,14 +54,14 @@ def test_search_document_ids_not_a_list(client):
     assert "error" in resp.json()
 
 
-# ── Success path ─────────────────────────────────────────────────────────────
+# ?? POST /search success path ?????????????????????????????????????????????????
 
 
 def test_search_success(client):
     with patch(
         "app.routes.search.answer_question", return_value=MOCK_ANSWER
     ) as mock_answer:
-        resp = client.post("/search", json={"query": "What is the answer?", "top_k": 5})
+        resp = client.post("/search", json={"query": "What is the answer?"})
 
     assert resp.status_code == 200
     result = resp.json()
@@ -91,7 +86,7 @@ def test_search_with_document_ids(client):
     assert _call_kwargs["document_ids"] == [doc_id]
 
 
-# ── External-service error paths ─────────────────────────────────────────────
+# ?? POST /search error paths ??????????????????????????????????????????????????
 
 
 def test_search_openai_failure(client):
@@ -114,4 +109,38 @@ def test_search_unexpected_error(client):
 
     assert resp.status_code == 500
     assert "error" in resp.json()
+
+
+# ?? GET /search/stream ????????????????????????????????????????????????????????
+
+
+async def _mock_stream():
+    yield {"event": "thinking", "data": json.dumps({"message": "Routing documents..."})}
+    yield {"event": "answer", "data": json.dumps({"text": MOCK_ANSWER["answer"], "sources": MOCK_ANSWER["sources"]})}
+
+
+def test_stream_missing_query(client):
+    resp = client.get("/search/stream")
+    assert resp.status_code == 400
+    assert "error" in resp.json()
+
+
+def test_stream_invalid_document_ids(client):
+    resp = client.get("/search/stream?query=test&document_ids=not-a-uuid")
+    assert resp.status_code == 400
+    assert "error" in resp.json()
+
+
+def test_stream_success(client):
+    with patch(
+        "app.routes.search.answer_question_stream",
+        return_value=_mock_stream(),
+    ):
+        resp = client.get("/search/stream?query=What+is+grace")
+
+    assert resp.status_code == 200
+    assert "text/event-stream" in resp.headers.get("content-type", "")
+    body = resp.text
+    assert "thinking" in body
+    assert "answer" in body
 

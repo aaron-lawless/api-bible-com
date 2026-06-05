@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from app.services.openai_client import create_openai_client
+from app.services.llm.openai_client import create_openai_client
 
 
 def test_create_openai_client_uses_default_constructor_when_available():

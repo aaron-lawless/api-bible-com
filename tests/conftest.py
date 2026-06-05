@@ -20,7 +20,7 @@ def mock_db():
 
 @pytest.fixture
 def client(app, mock_db):
-    from app.database import get_db
+    from db.database import get_db
 
     app.dependency_overrides[get_db] = lambda: mock_db
     with TestClient(app) as c:
