@@ -63,6 +63,33 @@ def normalize_question(text: str) -> str:
             tokens.append(token.lemma_.lower())
     return " ".join(tokens)
 
+# Parse a stored verse_reference string (e.g. "ruth 1:3-4" or "ruth 1:3") into
+# (book, chapter, verse_start, verse_end). verse_end == verse_start for single-verse refs.
+def _parse_verse_range(verse_ref: str) -> tuple[str, int, int, int] | None:
+    m = re.match(r'^(.+?)\s+(\d+):(\d+)(?:-(\d+))?$', verse_ref.strip())
+    if not m:
+        return None
+    book = m.group(1).strip()
+    ch = int(m.group(2))
+    vs = int(m.group(3))
+    ve = int(m.group(4)) if m.group(4) else vs
+    return book, ch, vs, ve
+
+# Return True if the query verse range (ref1) is fully contained within the cached verse range (ref2).
+# e.g. query "ruth 1:1-2" is contained in cached "ruth 1:1-6" → True
+#      query "ruth 1:5-15" extends beyond cached "ruth 1:1-6" → False
+def verse_refs_overlap(ref1: str, ref2: str) -> bool:
+    p1 = _parse_verse_range(ref1)
+    p2 = _parse_verse_range(ref2)
+    if p1 is None or p2 is None:
+        return False
+    book1, ch1, vs1, ve1 = p1
+    book2, ch2, vs2, ve2 = p2
+    if book1 != book2 or ch1 != ch2:
+        return False
+    # Query range must be fully contained within the cached range
+    return vs2 <= vs1 and ve1 <= ve2
+
 # Extract verse reference from text, returning (ref, book, chapter, verse_start, verse_end)
 # This helps improve the cache quality for verse-based questions
 def extract_verse_reference(text: str) -> tuple[str, str, int, int, int | None] | None:
