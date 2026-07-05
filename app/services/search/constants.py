@@ -42,6 +42,15 @@ Below are the available sources. Select the document IDs most likely to contain 
 
 {doc_summaries}
 
+Selection rules:
+1. Identify any Bible book, chapter, or verse reference in the question (e.g. "Genesis 1:4-8", "Exodus chapter 3", "What does Exodus say?").
+2. BOOK-ONLY question (no chapter or verse): include ONLY book-level sources whose title covers the whole book (e.g. "The Gospel Coalition - Exodus"). Do NOT include chapter-specific sources (e.g. "Enduring Word - Exodus 3").
+3. CHAPTER or VERSE question: include BOTH:
+   a. Book-level sources for the same book.
+   b. Chapter-specific sources whose chapter number matches the question's chapter.
+   Do NOT include chapter-specific sources for other chapters of the same book.
+4. Never include a source whose book does not match the question's Bible reference.
+
 Return format: ["uuid1", "uuid2"]"""
 
 # Used for selecting relevant passages within a document using the TOC as a guide.
