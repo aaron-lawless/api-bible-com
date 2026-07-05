@@ -26,7 +26,7 @@ from app.services.search.constants import (
     ROUTING_PROMPT,
     SYSTEM_PROMPT,
 )
-from app.services.search.utils import _distill_source, _extract_page_text, _load_history, _rewrite_with_history, extract_verse_reference, normalize_question, verse_refs_overlap
+from app.services.search.utils import _distill_source, _extract_page_text, _load_history, _rewrite_with_history, extract_book_and_chapter, extract_verse_reference, normalize_question, verse_refs_overlap
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +60,56 @@ def _tier1_route_documents(
     if not candidates:
         return []
 
+    # TODO: This is a bit of a hack -- we should have a more principled way to handle this
+    # Was thinking about having columns for book, chapter, verse_start, verse_end in the Document table, but that would require a lot of work to populate and maintain. For now, we'll just do a title-based injection of any documents that clearly cover the relevant Bible book/chapter.
+
+    # Title-based augmentation: if the query names a Bible book (and optionally
+    # a chapter), inject any documents missed by the cosine pre-filter.
+    #
+    # Injection rules:
+    #   - Book-only query (no chapter): inject ONLY book-level docs (title has
+    #     book name but no chapter number). Skip all chapter-specific docs.
+    #   - Chapter/verse query: inject book-level docs AND chapter-specific docs
+    #     whose chapter matches the query chapter. Skip all other chapters.
+    bible_ref = extract_book_and_chapter(query)
+    if bible_ref:
+        bible_book, query_chapter = bible_ref
+        candidate_ids = {str(row.Document.document_id) for row in candidates}
+        title_matches = (
+            db.execute(
+                select(Document)
+                .where(
+                    Document.summary_embedding.is_not(None),
+                    Document.title.ilike(f"%{bible_book}%"),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for doc in title_matches:
+            if str(doc.document_id) in candidate_ids:
+                continue
+            # Detect whether the title is chapter-specific (e.g. "Joshua 2")
+            title_chapter_m = re.search(
+                re.escape(bible_book) + r'\s+(\d+)', doc.title, re.IGNORECASE
+            )
+            if title_chapter_m:
+                doc_chapter = int(title_chapter_m.group(1))
+                # Book-only query: skip all chapter-specific docs
+                if query_chapter is None:
+                    continue
+                # Chapter/verse query: skip docs for non-matching chapters
+                if doc_chapter != query_chapter:
+                    continue
+            # Book-level doc, or chapter-specific doc whose chapter matches -- inject it
+            logger.debug(
+                "Title-match injection: '%s' added for '%s'",
+                doc.title,
+                f"{bible_book} {query_chapter}" if query_chapter else bible_book,
+            )
+            candidates.append(type("_Row", (), {"Document": doc, "distance": 1.0})())
+            candidate_ids.add(str(doc.document_id))
+
     # Build the LLM classifier prompt
     doc_summaries = "\n\n".join(
         f"[{i+1}] document_id={str(row.Document.document_id)}\n"
@@ -79,7 +129,7 @@ def _tier1_route_documents(
         model=Config.COMPLETION_MODEL,
         messages=[{"role": "user", "content": routing_prompt}],
         temperature=0,
-        max_tokens=256,
+        max_tokens=10000,
     )
 
     raw = response.choices[0].message.content.strip()

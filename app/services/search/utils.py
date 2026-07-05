@@ -34,6 +34,53 @@ _BIBLE_BOOKS: frozenset[str] = frozenset({
     "chronicles",
 })
 
+# Matches "Joshua 2", "2 Corinthians 5", "Psalm 119", etc. — book + chapter, no verse required
+_BOOK_CHAPTER_RE = re.compile(
+    r"(?P<book>[1-3]?\s*[a-zA-Z]+)\s+(?P<ch>\d+)",
+    re.IGNORECASE,
+)
+
+
+def extract_bible_book(text: str) -> str | None:
+    """Return the lower-cased Bible book name found in *text*, or None.
+
+    Checks every word (and common numbered-book prefixes like "1", "2", "3")
+    against the known _BIBLE_BOOKS set so bare book references ("Joshua",
+    "2 Corinthians") are found even without a chapter number.
+    """
+    lower = text.lower()
+    # Try numbered books first (e.g. "2 corinthians")
+    for prefix in ("1 ", "2 ", "3 "):
+        for book in _BIBLE_BOOKS:
+            candidate = prefix + book
+            if candidate in lower:
+                return candidate.strip()
+    # Then bare book names
+    for book in _BIBLE_BOOKS:
+        # Use word-boundary check to avoid e.g. "mark" matching "remarkable"
+        if re.search(r'\b' + re.escape(book) + r'\b', lower):
+            return book
+    return None
+
+
+def extract_book_and_chapter(text: str) -> tuple[str, int | None] | None:
+    """Return (book, chapter) extracted from *text*, or None if no book found.
+
+    Chapter is None when only a book name is present (e.g. "What does Joshua say?").
+    Examples:
+        "What is the context of Joshua 2?" -> ("joshua", 2)
+        "What does 2 Corinthians say about suffering?" -> ("2 corinthians", None)
+    """
+    book = extract_bible_book(text)
+    if book is None:
+        return None
+    # Look for a chapter number immediately following the book name in the original text
+    m = re.search(re.escape(book) + r'\s+(\d+)', text, re.IGNORECASE)
+    if m:
+        return book, int(m.group(1))
+    return book, None
+
+
 # Verse reference extraction helpers
 _VERSE_COLON_RE = re.compile(
     r"(?P<book>[1-3]?\s*[a-zA-Z]+)\s+(?P<ch>\d+):(?P<vs>\d+)(?:\s*[--]\s*(?P<ve>\d+))?",
